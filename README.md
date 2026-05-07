@@ -1,6 +1,6 @@
 # Wifi Stealer Dashboard
 
-Educational/offensive‑security lab project that:
+Educational/offensive‑security project that:
 
 - Steals Wi‑Fi SSID and password from a Windows machine using PowerShell run via BadUSB (Attiny85 / Digispark).  
 - Sends captured data to a PHP receiver (`wifi-recv.php`).  
