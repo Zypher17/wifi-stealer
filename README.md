@@ -19,3 +19,4 @@ profiles from a Windows host can be sent to a PHP server and visualized in a das
 - Open the dashboard in a browser to view captured entries.
 # wifi-stealer
 # wifi-stealer
+# wifi-stealer
