@@ -6,10 +6,6 @@ Educational/offensive‑security project that:
 - Sends captured data to a PHP receiver (`wifi-recv.php`).  
 - Shows a live dashboard (`index.php`) on a Kali/Apache server.
 
-> **Warning**:  
-> This is for authorized security testing and lab use only.  
-> Do **not** use it on systems you do not own or have explicit permission to test.
-
 ---
 
 ## 1. Setup the PHP dashboard on Kali
@@ -38,10 +34,10 @@ sudo chmod 664 /var/www/html/wifi_creds.log
 Open the dashboard in browser:
 
 ```text
-http://192.168.1.8/
+http://192.168.1.100/
 ```
 
-(Replace `192.168.1.8` with your Kali's LAN IP if different.)
+(Replace `192.168.1.100` with your Kali's LAN IP if different.)
 
 ---
 
@@ -80,7 +76,7 @@ http://192.168.1.8/
    );
    ```
 
-   Change `192.168.1.8` to your Kali's LAN IP, or to your VPS IP if you use one.
+   Change `192.168.1.100` to your Kali's LAN IP, or to your VPS IP if you use one.
 
 3. Plug in the Attiny85 / Digispark, then upload:
 
@@ -103,7 +99,7 @@ After flashing, when you plug the Attiny85 into a Windows machine, it will:
   ```  
 - Open:  
   ```text
-  http://192.168.1.8/
+  http://192.168.1.100/
   ```  
   to view the dashboard, stats, and delete unwanted entries.
 
