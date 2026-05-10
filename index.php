@@ -99,10 +99,14 @@ foreach ($rawLines as $rawLine) {
         if (
             $ssid === '' ||
             in_array($ssid, $badSsids, true) ||
-            $pass === '' ||
             in_array($pass, ['Pass', 'password'], true)
         ) {
             continue;
+        }
+
+        // Handle empty password (display it instead of filtering it out)
+        if ($pass === '') {
+            $pass = '(Not Found)';
         }
 
         // Use capture time from CSV; fallback to "unknown"
