@@ -1,6 +1,8 @@
 # WiFi Stealer Dashboard
 
-A BadUSB payload that grabs WiFi credentials from Windows machines and displays them on a web dashboard. Built this for pentesting.
+A BadUSB payload that grabs WiFi credentials from Windows machines and displays them on a web dashboard.
+
+![Dashboard Preview](WEB_SERVER_PICTURE.png)
 
 ## What it does
 
@@ -78,7 +80,7 @@ Open `http://YOUR_IP/index.php` in a browser (replace YOUR_IP with the IP you fo
 
 6. **Create the log file** (run PowerShell as admin):
    ```powershell
-   New-Item C:\xampp\htdocs\wifi_creds.log -ItemType File
+   New-Item C:\xampp\htdocs\wifi_creds.log -ItemItem File
    icacls C:\xampp\htdocs\wifi_creds.log /grant Users:F
    ```
 
@@ -100,11 +102,13 @@ Visit `http://localhost/index.php` - should see the dashboard.
 
 ## Programming the Digispark
 
+![Attiny85 Digispark](attiny85-digispark.jpg)
+
 ### Getting Arduino IDE ready
 
 1. Open Arduino IDE
 2. File → Preferences
-3. Paste this into "Additional Boards Manager URLs": http://digistump.com/package_digistump_index.json
+3. Paste this into "Additional Boards Manager URLs":http://digistump.com/package_digistump_index.json
 4. Tools → Board → Boards Manager
 5. Search for "Digistump AVR" and install it
 6. Select Board: "Digispark (Default - 16.5MHz)"
@@ -149,17 +153,6 @@ The dashboard shows:
 - IP addresses of the victims
 - Their OS version
 - You can delete entries too if you want
-
----
-
-## Heads Up
-
-This is **strictly for educational purposes** and authorized pentesting only. Don't be that guy who uses this on random people - that's super illegal and just generally a dick move.
-
-If you're running this in a lab:
-- Keep it on your local network
-- Don't expose it to the internet without proper security
-- Get permission before testing on any device you don't own
 
 ---
 
