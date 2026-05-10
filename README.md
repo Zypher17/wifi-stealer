@@ -238,9 +238,6 @@ If you cloned the repo, you can also delete the project folder you downloaded.
 ---
 
 ## Notes
-
-This project is for educational use and lab testing only.
-
 It’s meant to show how simple BadUSB-style workflows can be, and how important it is to secure systems properly.
 
 Feel free to improve it with things like:
