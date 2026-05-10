@@ -71,7 +71,7 @@ $captureEntries = [];
 foreach ($rawLines as $rawLine) {
     // In case wifi-recv.php appended blocks, split into single lines
     $lines = preg_split('/\r\n|\r|\n/', $rawLine);
-    foreach ($lines as $lineNum => $line) {
+    foreach ($lines as $line) {
         $line = trim($line);
         if ($line === '') continue;
 
