@@ -345,6 +345,5 @@ If this manual POST writes to the log, the PHP side is fine. Then the issue is:
 Ideas to improve it:
 
 - Better logging and timestamps.
-- CSV export / import features.
 - Duplicate SSID filtering and history view.
 - Authentication and HTTPS for the dashboard.
