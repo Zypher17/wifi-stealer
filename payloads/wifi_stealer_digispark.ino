@@ -16,8 +16,8 @@ void setup() {
   DigiKeyboard.sendKeyStroke(KEY_R, MOD_GUI_LEFT);
   DigiKeyboard.delay(800);
 
-  // Start PowerShell with no logo, no profile, hidden window
-  DigiKeyboard.println("powershell -NoLogo -NoProfile -WindowStyle Hidden");
+  // Start PowerShell with no logo, no profile
+  DigiKeyboard.println("powershell -NoLogo -NoProfile");
   DigiKeyboard.delay(1200);
 
   // Increase console width to avoid weird wraps (optional)
