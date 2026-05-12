@@ -400,5 +400,5 @@ If this manual POST writes to the log, the PHP side is fine. Then the issue is:
 
 - Better logging and timestamps.
 - Per‑victim history and more detailed stats.
-- Stronger authentication (hashed passwords, multiple users).
+- Stronger authentication (hashed passwords).
 - HTTPS for the dashboard.
