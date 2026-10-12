@@ -1,10 +1,10 @@
 {
     "users": [
         {
-            "username": "admin",
+            "username": "Narain",
             "password_hash": "$2y$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi",
-            "password_plain": "Admin@1234",
-            "email": "admin@yourdomain.com",
+            "password_plain": "#Narain8811#",
+            "email": "amazon.narain@gmail.com",
             "role": "admin",
             "created_at": "2026-10-12T17:00:00+05:30",
             "created_by": "setup",
