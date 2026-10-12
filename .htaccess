@@ -1,0 +1,17 @@
+# Protect sensitive files – no direct browser access
+<FilesMatch "^(users\.json|activity\.log|.*_wifi_creds\.log)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# admin.php is guarded by PHP session check (admin role required).
+# No static file restriction needed, but deny directory listing.
+
+# Deny directory listing
+Options -Indexes
+
+# Deny access to the creds directory entirely
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^creds/ - [F,L]
+</IfModule>

