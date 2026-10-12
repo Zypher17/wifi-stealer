@@ -43,15 +43,23 @@ rm setup.php
 
 ---
 
-## Admin Features
+## Features
 
-Log in with the admin account and you'll see:
+1. **Student Self-Registration**:
+   - Students can click the **"📝 Student Sign Up"** tab directly on the login page.
+   - They enter their **Username**, **Email**, and **Password**.
+   - Their account is created instantly and they are automatically logged into their personal dashboard.
+   - Each student can ONLY see their own captures.
 
-| Tab | What it does |
-|-----|---|
-| **Dashboard** | See ALL students' captured WiFi data in one table, with an "owner" column showing which student captured it |
-| **Manage Users** | Create new student/admin accounts (username + password + **email**), enable/disable, delete |
-| **Activity Log** | See every login, failed login, logout, and user management action with timestamp + IP address |
+2. **Admin Failsafe Login**:
+   - Username: `admin`
+   - Password: `Admin@1234`
+   - Built-in multi-layer matching ensures the instructor is never locked out.
+
+3. **Admin Panel (`admin.php`)**:
+   - Displays all registered student names, emails, and passwords (with reveal toggle).
+   - Allows monitoring all students' captures grouped by student.
+   - Full activity log with timestamps and IPs.
 
 ---
 
