@@ -12,8 +12,9 @@ if ($token === '') {
     exit;
 }
 
-$proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
 $host  = $_SERVER['HTTP_HOST'];
+// Cloudflare or reverse proxy might set HTTP internally, so force https if on public domain
+$proto = (strpos($host, 'localhost') !== false || strpos($host, '127.0.0.1') !== false) ? 'http' : 'https';
 $uploadUrl = "{$proto}://{$host}/upload.php?token=" . urlencode($token);
 ?>
 $u = '<?php echo $uploadUrl; ?>'
