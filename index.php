@@ -379,6 +379,7 @@ if (empty($_SESSION['logged_in'])) {
 <meta charset="UTF-8">
 <title>Network Security Dashboard – Access Portal</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/jpeg" href="logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -415,13 +416,21 @@ if (empty($_SESSION['logged_in'])) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 50px;
-    height: 50px;
+    width: 64px;
+    height: 64px;
     background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
-    border-radius: 14px;
-    font-size: 24px;
+    border-radius: 16px;
     margin-bottom: 14px;
-    box-shadow: 0 10px 20px -5px rgba(79, 70, 229, 0.4);
+    box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.5);
+    overflow: hidden;
+    padding: 2px;
+  }
+  .brand-badge img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 14px;
+    display: block;
   }
   .brand-title {
     font-size: 22px;
@@ -565,7 +574,7 @@ if (empty($_SESSION['logged_in'])) {
 
 <div class="auth-box">
   <div class="header-brand">
-    <div class="brand-badge">📡</div>
+    <div class="brand-badge"><img src="logo.jpg" alt="Logo"></div>
     <h1 class="brand-title">Security Lab Portal</h1>
     <p class="brand-desc">Wi-Fi Penetration Testing & Analysis System</p>
     <div class="shield-tag">🛡️ Anti-Brute-Force Rate Limiting Active</div>
@@ -704,6 +713,7 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
 <meta charset="UTF-8">
 <title>Dashboard – Security Analysis</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/jpeg" href="logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -734,14 +744,23 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
     margin-bottom: 20px;
   }
   .logo-icon {
-    width: 40px;
-    height: 40px;
+    width: 42px;
+    height: 42px;
     background: linear-gradient(135deg, #4f46e5, #06b6d4);
-    border-radius: 10px;
+    border-radius: 11px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    overflow: hidden;
+    padding: 2px;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+  }
+  .logo-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 9px;
+    display: block;
   }
   .logo-title {
     font-size: 16px;
@@ -959,7 +978,7 @@ $uniqueSSIDs   = count(array_unique(array_column($deduped, 'ssid')));
 
 <aside class="sidebar">
   <div class="sidebar-logo">
-    <div class="logo-icon">📡</div>
+    <div class="logo-icon"><img src="logo.jpg" alt="Logo"></div>
     <div>
       <div class="logo-title">Security Lab</div>
       <div class="logo-sub"><?php echo $isAdmin ? 'Management Console' : 'User Workspace'; ?></div>
