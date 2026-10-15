@@ -265,6 +265,7 @@ $adminUser = $_SESSION['login_user'];
 <meta charset="UTF-8">
 <title>Admin Portal – Network Security</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/jpeg" href="logo.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -295,14 +296,23 @@ $adminUser = $_SESSION['login_user'];
     margin-bottom: 20px;
   }
   .logo-icon {
-    width: 40px;
-    height: 40px;
+    width: 42px;
+    height: 42px;
     background: linear-gradient(135deg, #f43f5e, #ec4899);
-    border-radius: 10px;
+    border-radius: 11px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    overflow: hidden;
+    padding: 2px;
+    box-shadow: 0 4px 12px rgba(244, 63, 94, 0.35);
+  }
+  .logo-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 9px;
+    display: block;
   }
   .logo-title {
     font-size: 16px;
@@ -616,7 +626,7 @@ $adminUser = $_SESSION['login_user'];
 
 <aside class="sidebar">
   <div class="sidebar-logo">
-    <div class="logo-icon">🛡️</div>
+    <div class="logo-icon"><img src="logo.jpg" alt="Logo"></div>
     <div>
       <div class="logo-title">Admin Console</div>
       <div class="logo-sub">Narain Privileges</div>
